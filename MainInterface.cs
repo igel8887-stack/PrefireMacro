@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
@@ -165,7 +165,7 @@ namespace PrefireMacro
         }
         Button BuildInterface()
         {
-            Text = "Prefire V27.3 Test"; Font = new Font("Segoe UI", 12); BackColor = DarkTheme.Window;
+            Text = "Prefire V27.4 Test"; Font = new Font("Segoe UI", 12); BackColor = DarkTheme.Window;
             AutoScaleDimensions = new SizeF(96, 96); AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(1180, 860); MinimumSize = new Size(900, 650); StartPosition = FormStartPosition.CenterScreen;
             if (Height > Screen.PrimaryScreen.WorkingArea.Height) Height = Screen.PrimaryScreen.WorkingArea.Height;
@@ -174,7 +174,7 @@ namespace PrefireMacro
             TableLayoutPanel toolbar = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(24, 16, 24, 8), ColumnCount = 2, RowCount = 2, Margin = Padding.Empty };
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 400)); toolbar.RowStyles.Add(new RowStyle(SizeType.Absolute, 48)); toolbar.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); shell.Controls.Add(toolbar, 0, 0); shell.SetColumnSpan(toolbar, 2);
             FlowLayoutPanel brand = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
-            Label brandName = Copy("Prefire", 20, true), version = Copy("V27.3 Test", 10.5f); brandName.Margin = new Padding(0, 3, 14, 0); version.Margin = new Padding(0, 14, 0, 0); brand.Controls.Add(brandName); brand.Controls.Add(version); toolbar.Controls.Add(brand, 0, 0);
+            Label brandName = Copy("Prefire", 20, true), version = Copy("V27.4 Test", 10.5f); brandName.Margin = new Padding(0, 3, 14, 0); version.Margin = new Padding(0, 14, 0, 0); brand.Controls.Add(brandName); brand.Controls.Add(version); toolbar.Controls.Add(brand, 0, 0);
             FlowLayoutPanel actions = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Margin = Padding.Empty };
             enabled.Text = "Aktivieren · F8"; enabled.Appearance = Appearance.Button; enabled.TextAlign = ContentAlignment.MiddleCenter; enabled.Size = new Size(156, 42); enabled.Margin = new Padding(8, 0, 0, 0); enabled.AccessibleName = "Automatische Eingaben aktivieren oder pausieren"; actions.Controls.Add(enabled);
             Button pause = ActionButton("Pause · F10", 110, delegate { PauseNow(); }); pause.Margin = new Padding(8, 0, 0, 0); pause.AccessibleName = "Sofort pausieren (F10)"; actions.Controls.Add(pause); helpTips.SetToolTip(pause, "Pausiert sofort und bricht ausstehende Eingaben ab.");
@@ -229,7 +229,7 @@ namespace PrefireMacro
             frameTiming.Text = "Bildzeiten: noch keine Messung"; frameTiming.AutoSize = true; frameTiming.Dock = DockStyle.Fill; frameTiming.Font = new Font("Segoe UI", 10.5f); frameTiming.AccessibleName = frameTiming.Text; frameTiming.AccessibleDescription = "Zeiten für Aufnahme und Erkennung des letzten Bildes, keine gesamte Reaktionszeit im Spiel."; Row(live, frameTiming);
             helpTips.SetToolTip(frameTiming, "Gemessene Verarbeitung des letzten Bildes. Aufnahme und Erkennung werden getrennt angezeigt. Das ist keine Messung der gesamten Reaktionszeit im Spiel.");
             fastCapture.Text = "GPU-Aufnahme testen"; fastCapture.AutoSize = true; fastCapture.Checked = cfg.FastCapture;
-            Row(live, OptionHelp(fastCapture, "GPU-Aufnahme", "Optionaler Aufnahmeweg über Windows Desktop Duplication. In V27.3 Test nutzt auch die unabhängige Schussprüfung eine eigene direkte GPU-Aufnahme. Die erste Einrichtung kann Zeit kosten; eine schnellere Schussreaktion im Spiel ist noch nicht nachgewiesen.\n\nKein gemeinsamer Hintergrundpuffer. GPU-Bilder müssen neu, höchstens 12 ms alt und bei der Schussprüfung nach dem Verlustfilter präsentiert worden sein. Ohne frisches GPU-Bild folgt sofort eine GDI-Aufnahme. Fokus, Spielbereich und Bildalter werden weiterhin geprüft. HDR, gedrehte oder mehrere Monitore im Spielbereich verwenden GDI.\n\nZum Vergleichen auf GPU/GDI und die Aufnahmezeit achten. Im Protokoll steht zusätzlich die Quelle der Schussprüfung. Standardmäßig aus. Eine Änderung pausiert das Tool; danach speichern und mit F8 aktivieren."));
+            Row(live, OptionHelp(fastCapture, "GPU-Aufnahme", "Optionaler Aufnahmeweg über Windows Desktop Duplication. Die GPU-Option gilt für die laufende Zielbeobachtung. Die letzte unabhängige Schussprüfung verwendet GDI: Der zweite GPU-Aufnahmeweg aus V27.3 verursachte auf diesem PC Fehler und zusätzliche Verzögerungen. Eine schnellere Schussreaktion als V27.2 ist noch nicht nachgewiesen.\n\nKein gemeinsamer Hintergrundpuffer. GPU-Bilder müssen neu, höchstens 12 ms alt und bei der Schussprüfung nach dem Verlustfilter präsentiert worden sein. Ohne frisches GPU-Bild folgt sofort eine GDI-Aufnahme. Fokus, Spielbereich und Bildalter werden weiterhin geprüft. HDR, gedrehte oder mehrere Monitore im Spielbereich verwenden GDI.\n\nZum Vergleichen auf GPU/GDI und die Aufnahmezeit achten. Im Protokoll steht zusätzlich die Quelle der Schussprüfung. Standardmäßig aus. Eine Änderung pausiert das Tool; danach speichern und mit F8 aktivieren."));
             TableLayoutPanel building = Stack(18); Row(timing, building);
             Row(building, Topic("01  Wand nach dem Schuss", "Die Folge lautet: Linksklick zum Schießen → Bautaste → erneuter Linksklick zum Platzieren.\n\nWähle dieselbe Bautaste, die in Fortnite die Wand auswählt. XButton1 ist meist die hintere und XButton2 die vordere Daumentaste.\n\nDer Platzierungsklick bleibt 80 ms gehalten. Ein gesendeter Klick bestätigt noch nicht, dass der Server eine Wand platziert hat. Bei Fokusverlust oder F10 wird die Folge abgebrochen."));
             build.Text = "Nach dem Schuss bauen und platzieren"; build.AutoSize = true; build.Checked = cfg.BuildAfter; Row(building, Inline(build));

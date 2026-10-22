@@ -496,7 +496,6 @@ namespace PrefireMacro
                 long firstFrameAt = barCapture.CapturedAtMs;
                 long firstFrameAppMs = scanClock.ElapsedMilliseconds - (ShotVerifier.ClockMs() - firstFrameAt);
                 int confirmationDelay = (int)lossDelay.Value;
-                bool useDirectGpuVerification = fastCapture.Checked;
                 string verificationReason = "Noch nicht geprüft";
                 bool resumeObservation = false;
                 bool retryVerification = false;
@@ -543,7 +542,7 @@ namespace PrefireMacro
                         }); } catch (InvalidOperationException) { }
                 }, delegate {
                     if (adaptiveTiming != null) adaptiveTiming.Prepare();
-                    return shotVerifier.Check(shotWindow, shotProcess, knownHud, verifier, decisionArea, decisionClient, firstFrameAt, confirmationDelay, key, out verificationReason, out resumeObservation, out retryVerification, out restoredFrameAt, targetTransition, useDirectGpuVerification);
+                    return shotVerifier.Check(shotWindow, shotProcess, knownHud, verifier, decisionArea, decisionClient, firstFrameAt, confirmationDelay, key, out verificationReason, out resumeObservation, out retryVerification, out restoredFrameAt, targetTransition);
                 }, delegate
                 {
                     if (!IsDisposed && IsHandleCreated) try { BeginInvoke((Action)delegate { if (!IsDisposed && lastScan == now) recorder.CaptureDetection(barCapture.Frame, barCapture.LastArea, now, "Schussentscheidung vor gesendeter Eingabe: " + observation.Reason); }); } catch (InvalidOperationException) { }

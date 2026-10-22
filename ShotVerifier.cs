@@ -60,7 +60,7 @@ namespace PrefireMacro
             }
             return false;
         }
-        internal bool Check(IntPtr expectedWindow, uint expectedProcess, Rectangle known, HealthBarDetector detector, Rectangle expectedArea, Size expectedClient, long firstFrameAt, int delayMs, int holdKey, out string reason, out bool resumeObservation, out bool retryVerification, out long restoredAt, HudTransition transition = null, bool preferFast = false)
+        internal bool Check(IntPtr expectedWindow, uint expectedProcess, Rectangle known, HealthBarDetector detector, Rectangle expectedArea, Size expectedClient, long firstFrameAt, int delayMs, int holdKey, out string reason, out bool resumeObservation, out bool retryVerification, out long restoredAt, HudTransition transition = null)
         {
             reason = "Nicht geprueft";
             LastCheckedAtMs = 0;
@@ -80,7 +80,11 @@ namespace PrefireMacro
                         { frameReason = "Haltetaste oder Fokus vor Aufnahme geaendert"; return false; }
                         if (!HealthBarCapture.ClientBounds(expectedWindow, out before) || before.Size != expectedClient || HealthBarDetector.SearchArea(before) != expectedArea)
                         { frameReason = "Spielbereich vor Pruefung verschoben oder skaliert"; return false; }
-                        capture.CaptureFrame(expectedWindow, preferFast, firstFrameAt + delayMs - 1); long captured = ClockMs();
+                        // A second DXGI owner failed in the V27.3 live recording and
+                        // paid device setup + fallback inside the shot deadline.
+                        // Keep this independent fresh check on GDI; tracking can
+                        // still use the optional GPU path.
+                        capture.CaptureFrame(expectedWindow); long captured = ClockMs();
                         if (!Native.ForegroundMatches(expectedWindow, expectedProcess))
                         { frameReason = "Fokus waehrend Aufnahme gewechselt"; restoredHud = false; return false; }
                         Rectangle after;
