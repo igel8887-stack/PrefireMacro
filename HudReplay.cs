@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -7,10 +7,10 @@ namespace PrefireMacro
 {
     internal static class HudReplay
     {
-        internal static bool GuardProbe(string manifest, string report)
+        internal static bool GuardProbe(string manifest, string report, bool turbo = false)
         {
             Config config = new Config { HasFirst = true, HasSecond = true, FirstColor = 0x5CC442, SecondColor = 0xDA943D };
-            HealthBarDetector detector = new HealthBarDetector(config, 25); int count = 0, failed = 0;
+            HealthBarDetector detector = new HealthBarDetector(config, 25) { Turbo = turbo }; int count = 0, failed = 0;
             using (StreamWriter output = new StreamWriter(report))
             {
                 output.WriteLine("file,build_permitted,ms,reason");
@@ -34,10 +34,10 @@ namespace PrefireMacro
             File.WriteAllText(report + ".result.txt", "GuardFrames=" + count + "; Mismatches=" + failed + "; " + (failed == 0 ? "PASS" : "FAIL") + "; visible HUD is a conservative build veto, not an edit-geometry classifier; no inputs sent.");
             return failed == 0;
         }
-        internal static bool Track(string manifest, string report)
+        internal static bool Track(string manifest, string report, bool turbo = false)
         {
             Config config = new Config { HasFirst = true, HasSecond = true, FirstColor = 0x5CC442, SecondColor = 0xDA943D };
-            HealthBarDetector detector = new HealthBarDetector(config, 25); HealthBarTracker tracker = new HealthBarTracker();
+            HealthBarDetector detector = new HealthBarDetector(config, 25) { Turbo = turbo }; HealthBarTracker tracker = new HealthBarTracker();
             PrefireGate gate = new PrefireGate(20);
             int failures = 0, count = 0; long now = 0; SceneSample previousScene = null;
             using (StreamWriter output = new StreamWriter(report))
@@ -79,10 +79,10 @@ namespace PrefireMacro
             return failures == 0;
         }
         // Manifest: filename,screen_x,screen_y,client_width,client_height (generated regression fixtures).
-        internal static bool Probe(string manifest, string report, bool includeTrackedSupport = false)
+        internal static bool Probe(string manifest, string report, bool includeTrackedSupport = false, bool turbo = false)
         {
             Config config = new Config { HasFirst = true, HasSecond = true, FirstColor = 0x5CC442, SecondColor = 0xDA943D };
-            HealthBarDetector detector = new HealthBarDetector(config, 25);
+            HealthBarDetector detector = new HealthBarDetector(config, 25) { Turbo = turbo };
             string[] lines = File.ReadAllLines(manifest); bool debug = lines.Length < 4;
             int failures = 0, labelled = 0, total = 0;
             using (StreamWriter output = new StreamWriter(report))

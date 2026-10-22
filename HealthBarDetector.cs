@@ -39,7 +39,8 @@ namespace PrefireMacro
             }
         }
         SearchFloor searchFloor;
-        readonly int[] nonBlackCounts = new int[4];
+        readonly int[] nonBlackCounts = new int[8];
+        internal bool Turbo;
         int[] textColumns, columnTop, columnBottom;
         Rectangle seedReticleInk;
         readonly HashSet<long> seedChecks = new HashSet<long>();
@@ -127,6 +128,7 @@ namespace PrefireMacro
             tailArea = Rectangle.Empty;
             width = source.Width; height = source.Height;
             int size = width * height;
+            int parallelism = Turbo ? Math.Max(1, Math.Min(8, Environment.ProcessorCount)) : 4;
             Prepare(source.Size);
             BitmapData data = image.LockBits(source, ImageLockMode.ReadOnly, HudPixels.LockFormat(image));
             int nonBlack = 0;
@@ -136,13 +138,13 @@ namespace PrefireMacro
                 {
                     // Each worker owns the copied pixels and mask in its slice.
                     // Search starts only after all four slices are complete.
-                    Parallel.For(0, 4, new ParallelOptions { MaxDegreeOfParallelism = 4 }, delegate(int n)
+                    Parallel.For(0, parallelism, new ParallelOptions { MaxDegreeOfParallelism = parallelism }, delegate(int n)
                     {
-                        int first = size * n / 4, end = size * (n + 1) / 4;
+                        int first = size * n / parallelism, end = size * (n + 1) / parallelism;
                         Marshal.Copy(IntPtr.Add(data.Scan0, first * 4), pixels, first, end - first);
                         nonBlackCounts[n] = BuildMask(first, end);
                     });
-                    nonBlack = nonBlackCounts[0] + nonBlackCounts[1] + nonBlackCounts[2] + nonBlackCounts[3];
+                    for (int n = 0; n < parallelism; n++) nonBlack += nonBlackCounts[n];
                 }
                 else
                 {
@@ -164,7 +166,7 @@ namespace PrefireMacro
                 int[] order = new int[parts]; for (int n = 0; n < parts; n++) order[n] = n;
                 double aimY = reticleCenter.HasValue ? reticleCenter.Value.Y - screenArea.Y : clientSize.Height * .35;
                 Array.Sort(order, delegate(int a, int b) { return Math.Abs(height * (a + .5) / parts - aimY).CompareTo(Math.Abs(height * (b + .5) / parts - aimY)); });
-                Parallel.For(0, parts, new ParallelOptions { MaxDegreeOfParallelism = 4 }, delegate(int n)
+                Parallel.For(0, parts, new ParallelOptions { MaxDegreeOfParallelism = parallelism }, delegate(int n)
                 {
                     int part = order[n]; HealthBarDetector worker = workers[part]; worker.pixels = pixels; worker.mask = mask; worker.width = width; worker.height = height; worker.searchFloor = floor;
                     found[part] = worker.Scan(screenArea, clientSize, tracked, requireHud, verifiedHud, reticleCenter, 1 + 2 * (rows * part / parts), Math.Min(height - 1, 1 + 2 * (rows * (part + 1) / parts)));
@@ -658,8 +660,11 @@ namespace PrefireMacro
         [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr window, out Rect rect);
         [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr window, ref Native.Point point);
         Bitmap frame;
-        DesktopFrameCapture fastCapture;
-        long fastRetryAt;
+        readonly SharedDesktopCapture fastCapture;
+        readonly bool ownsFastCapture;
+        internal SharedDesktopCapture FastSource { get { return fastCapture; } }
+        internal HealthBarCapture() { fastCapture = new SharedDesktopCapture(); ownsFastCapture = true; }
+        internal HealthBarCapture(SharedDesktopCapture source) { fastCapture = source; }
         internal string CaptureBackend { get; private set; }
         internal Bitmap Frame { get { return frame; } }
         internal Rectangle LastArea { get; private set; }
@@ -677,34 +682,34 @@ namespace PrefireMacro
             CaptureFrame(window);
             return detector.Find(frame, LastArea, LastClientSize);
         }
-        internal void CaptureFrame(IntPtr window, bool preferFast = false, long notBefore = -1)
+        internal void CaptureFrame(IntPtr window, bool preferFast = false, long notBefore = -1, bool allowGpuInitialize = true)
         {
             Rectangle client;
             if (!ClientBounds(window, out client)) throw new InvalidOperationException("Fortnite-Bildbereich nicht verfügbar.");
             Prepare(HealthBarDetector.SearchArea(client), client.Size);
-            if (preferFast && LastArea.Width >= 1200 && ShotVerifier.ClockMs() >= fastRetryAt)
+            if (preferFast && LastArea.Width >= 1200)
             {
                 try {
-                    if (fastCapture == null) fastCapture = new DesktopFrameCapture(LastArea);
                     // RGB preserves opaque preview/recorder clones when the desktop texture's alpha is zero.
                     if (frame.PixelFormat != PixelFormat.Format32bppRgb) { frame.Dispose(); frame = new Bitmap(LastArea.Width, LastArea.Height, PixelFormat.Format32bppRgb); }
-                    if (fastCapture.Capture(LastArea, frame, Math.Max(CapturedAtMs, notBefore))) {
+                    long gpuAt; string gpuStatus;
+                    if (fastCapture.TryCapture(LastArea, frame, Math.Max(CapturedAtMs, notBefore), allowGpuInitialize, out gpuAt, out gpuStatus, allowGpuInitialize ? 0 : 3)) {
                         Rectangle after;
                         if (Native.GetForegroundWindow() != window || !ClientBounds(window, out after) || after != client) throw new InvalidOperationException("Spielbereich während GPU-Aufnahme geändert");
-                        CapturedAtMs = fastCapture.ValidatedAtMs; CaptureBackend = "GPU"; return;
+                        CapturedAtMs = gpuAt; CaptureBackend = "GPU"; return;
                     }
-                    CaptureBackend = "GDI · kein frisches GPU-Bild";
+                    CaptureBackend = "GDI · " + gpuStatus;
                 }
                 catch (Exception ex) {
-                    ResetFastCapture(); fastRetryAt = ShotVerifier.ClockMs() + 5000;
+                    ResetFastCapture();
                     CaptureBackend = "GDI · GPU nicht verfügbar (" + ex.GetType().Name + ")";
                 }
             }
-            else { if (!preferFast) ResetFastCapture(); CaptureBackend = preferFast ? "GDI · Kompatibilität" : "GDI"; }
+            else { if (!preferFast && ownsFastCapture) ResetFastCapture(); CaptureBackend = preferFast ? "GDI · Kompatibilität" : "GDI"; }
             using (Graphics graphics = Graphics.FromImage(frame)) graphics.CopyFromScreen(LastArea.Location, Point.Empty, LastArea.Size);
             CapturedAtMs = ShotVerifier.ClockMs();
         }
-        internal void ResetFastCapture() { if (fastCapture != null) { fastCapture.Dispose(); fastCapture = null; } }
+        internal void ResetFastCapture() { fastCapture.Reset(); }
         internal void Prepare(Rectangle area, Size client)
         {
             if (LastArea != area || LastClientSize != client) CapturedAtMs = 0;
@@ -712,7 +717,7 @@ namespace PrefireMacro
             if (frame == null || frame.Size != LastArea.Size)
             { if (frame != null) frame.Dispose(); frame = new Bitmap(LastArea.Width, LastArea.Height, PixelFormat.Format32bppArgb); }
         }
-        public void Dispose() { ResetFastCapture(); if (frame != null) frame.Dispose(); }
+        public void Dispose() { if (ownsFastCapture) fastCapture.Dispose(); if (frame != null) frame.Dispose(); }
     }
 }
 

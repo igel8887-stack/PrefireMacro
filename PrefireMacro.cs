@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -20,6 +20,7 @@ namespace PrefireMacro
         public bool AdaptiveBuildAfter;
         public bool EditBuildGuard;
         public bool FastCapture;
+        public bool TurboMode;
         public bool ExtraPlacements, ExtraStair = true, ExtraFloor;
         public int StairKey = 70, FloorKey = 67, ExtraDelayMs = 60;
         public int LossDelayMs = 20;
@@ -135,6 +136,10 @@ namespace PrefireMacro
         readonly CheckBox adaptiveBuild = new CheckBox();
         readonly CheckBox editGuard = new CheckBox();
         readonly CheckBox fastCapture = new CheckBox();
+        readonly CheckBox turbo = new CheckBox();
+        System.Threading.Timer turboTimer;
+        volatile bool turboActive, closing;
+        int turboQueued, turboHoldKey;
         readonly CheckBox extras = new CheckBox(), extraStair = new CheckBox(), extraFloor = new CheckBox();
         readonly ComboBox stairKey = new DarkComboBox(), floorKey = new DarkComboBox();
         readonly NumericUpDown extraDelay = new RoundedNumber();
@@ -149,7 +154,7 @@ namespace PrefireMacro
         readonly HealthBarCapture barCapture = new HealthBarCapture();
         HealthBarDetector barDetector;
         HealthBarDetector shotDetector;
-        readonly ShotVerifier shotVerifier = new ShotVerifier();
+        readonly ShotVerifier shotVerifier;
         BarDetection lastDetection;
         readonly System.Diagnostics.Stopwatch scanClock = System.Diagnostics.Stopwatch.StartNew();
         long lastScan = -1000, lastPreview;
@@ -164,6 +169,7 @@ namespace PrefireMacro
         public MainForm(Config config, bool previewOnly)
         {
             cfg = config; preview = previewOnly;
+            shotVerifier = new ShotVerifier(barCapture.FastSource);
             trigger = new PrefireGate(Math.Max(20, Math.Min(200, cfg.LossDelayMs)));
             if (cfg.FirstSamples == null) cfg.FirstSamples = new List<PixelSample>();
             if (cfg.SecondSamples == null) cfg.SecondSamples = new List<PixelSample>();
@@ -213,12 +219,13 @@ namespace PrefireMacro
             };
             x.ValueChanged += delegate { PositionChanged(); }; y.ValueChanged += delegate { PositionChanged(); };
             hold.SelectedIndexChanged += delegate { enabled.Checked = false; trigger.Reset(); releaseRequired = true; };
-            tolerance.ValueChanged += delegate { enabled.Checked = false; tracker.Reset(); trigger.Reset(); barDetector = new HealthBarDetector(cfg, (int)tolerance.Value); shotDetector = new HealthBarDetector(cfg, (int)tolerance.Value); };
+            tolerance.ValueChanged += delegate { enabled.Checked = false; tracker.Reset(); trigger.Reset(); barDetector = new HealthBarDetector(cfg, (int)tolerance.Value); shotDetector = new HealthBarDetector(cfg, (int)tolerance.Value); barDetector.Turbo = shotDetector.Turbo = turbo.Checked; };
             lossDelay.ValueChanged += delegate { enabled.Checked = false; StopPending(); trigger = new PrefireGate((int)lossDelay.Value); };
             build.CheckedChanged += delegate { enabled.Checked = false; updateTimingFields(); };
             adaptiveBuild.CheckedChanged += delegate { enabled.Checked = false; updateTimingFields(); };
             editGuard.CheckedChanged += delegate { enabled.Checked = false; trace.Add(scanClock.ElapsedMilliseconds, false, false, lastObservation, trigger.Status, "Edit-Schutz geändert: " + editGuard.Checked); };
             fastCapture.CheckedChanged += delegate { enabled.Checked = false; barCapture.ResetFastCapture(); tracker.Reset(); trigger.Reset(); ClearPreview(); };
+            turbo.CheckedChanged += delegate { enabled.Checked = false; StopPending(); barCapture.ResetFastCapture(); tracker.Reset(); trigger.Reset(); barDetector.Turbo = shotDetector.Turbo = turbo.Checked; SetTimerPrecision(false); trace.Add(scanClock.ElapsedMilliseconds, false, false, lastObservation, trigger.Status, "Turbomodus=" + turbo.Checked); };
             buildKey.SelectedIndexChanged += delegate { enabled.Checked = false; };
             foreach (CheckBox option in new CheckBox[] { extras, extraStair, extraFloor }) option.CheckedChanged += delegate { enabled.Checked = false; updateTimingFields(); };
             foreach (ComboBox option in new ComboBox[] { stairKey, floorKey }) option.SelectedIndexChanged += delegate { enabled.Checked = false; };
@@ -226,15 +233,31 @@ namespace PrefireMacro
             delay.ValueChanged += delegate { enabled.Checked = false; };
             placeDelay.ValueChanged += delegate { enabled.Checked = false; };
             timer.Interval = 20; timer.Tick += delegate { TickLoop(); };
+            barDetector.Turbo = shotDetector.Turbo = turbo.Checked;
+            turboTimer = new System.Threading.Timer(TurboWake, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
             UpdateStatus("Pausiert"); feedback.Text = cfg.HasFirst ? "Zuerst stabilen Balken anvisieren, dann Haltetaste halten. F10 pausiert sofort." : "Beginne mit Farbe 1: Wähle grüne Pixel aus dem vollen Lebensbalken. Danach Farbe 2 einrichten und speichern.";
             Shown += delegate { if (!preview) { RegisterKeys(); timer.Start(); if (RecordOnStart) ToggleRecording(); } };
-            FormClosing += delegate { timer.Stop(); SetTimerPrecision(false); sequence.Dispose(); if (!sequence.Running) shotVerifier.Dispose(); recorder.Dispose(); barCapture.Dispose(); if (barPreview.Image != null) barPreview.Image.Dispose(); for (int i = 1; i <= 6; i++) Native.UnregisterHotKey(Handle, i); };
+            FormClosing += delegate { closing = true; timer.Stop(); SetTimerPrecision(false); if (turboTimer != null) turboTimer.Dispose(); sequence.Dispose(); if (!sequence.Running) shotVerifier.Dispose(); recorder.Dispose(); barCapture.Dispose(); if (barPreview.Image != null) barPreview.Image.Dispose(); for (int i = 1; i <= 6; i++) Native.UnregisterHotKey(Handle, i); };
+        }
+        void TurboWake(object state)
+        {
+            // One queued UI operation at most. No control reads, capture or
+            // input on this timer thread; old ticks never accumulate.
+            if (closing || !turboActive || !Native.Held(turboHoldKey) || System.Threading.Interlocked.CompareExchange(ref turboQueued, 1, 0) != 0) return;
+            try { BeginInvoke((Action)delegate {
+                try { if (!closing && turboActive) TickLoop(); }
+                finally { System.Threading.Interlocked.Exchange(ref turboQueued, 0); }
+            }); }
+            catch (InvalidOperationException) { System.Threading.Interlocked.Exchange(ref turboQueued, 0); }
         }
         void SetTimerPrecision(bool active)
         {
             if (active && !preciseTimer) preciseTimer = Native.timeBeginPeriod(1) == 0;
             else if (!active && preciseTimer) { Native.timeEndPeriod(1); preciseTimer = false; }
             timer.Interval = active ? 5 : 20;
+            turboHoldKey = hold.SelectedItem == null ? 0 : ((Choice)hold.SelectedItem).Key;
+            turboActive = active && turbo.Checked && !closing;
+            if (turboTimer != null) turboTimer.Change(turboActive ? 1 : System.Threading.Timeout.Infinite, turboActive ? 1 : System.Threading.Timeout.Infinite);
         }
         static string RecordingRoot { get { string custom = Environment.GetEnvironmentVariable("PREFIRE_RECORDING_ROOT"); return !String.IsNullOrWhiteSpace(custom) && Path.IsPathRooted(custom) ? custom : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Aufnahmen"); } }
         void ToggleRecording()
@@ -242,7 +265,7 @@ namespace PrefireMacro
             try
             {
                 if (recorder.Recording) recorder.Stop();
-                else { recorder.Start(RecordingRoot, delegate { return scanClock.ElapsedMilliseconds; }, cfg); recorder.Marker("Aufnahme gestartet; aktuelle UI-Werte: Verlustfilter=" + lossDelay.Value + "; Toleranz=" + tolerance.Value + "; HoldKey=" + ((Choice)hold.SelectedItem).Key + "; Build=" + build.Checked + "; BuildKey=" + ((Choice)buildKey.SelectedItem).Key + "; BuildDelay=" + delay.Value + "; PlaceDelay=" + placeDelay.Value + "; AdaptiveBuild=" + (build.Checked && adaptiveBuild.Checked) + "; EditGuard=" + (build.Checked && editGuard.Checked) + "; Version=" + typeof(MainForm).Assembly.GetName().Version + "; GPUCapture=" + fastCapture.Checked + "; MouseMotionGate=False"); }
+                else { recorder.Start(RecordingRoot, delegate { return scanClock.ElapsedMilliseconds; }, cfg); recorder.Marker("Aufnahme gestartet; aktuelle UI-Werte: Verlustfilter=" + lossDelay.Value + "; Toleranz=" + tolerance.Value + "; HoldKey=" + ((Choice)hold.SelectedItem).Key + "; Build=" + build.Checked + "; BuildKey=" + ((Choice)buildKey.SelectedItem).Key + "; BuildDelay=" + delay.Value + "; PlaceDelay=" + placeDelay.Value + "; AdaptiveBuild=" + (build.Checked && adaptiveBuild.Checked) + "; EditGuard=" + (build.Checked && editGuard.Checked) + "; Version=" + typeof(MainForm).Assembly.GetName().Version + "; GPUCapture=" + (fastCapture.Checked || turbo.Checked) + "; TurboMode=" + turbo.Checked + "; MouseMotionGate=False"); }
                 RefreshRecordingStatus();
             }
             catch (Exception ex) { feedback.Text = "Aufnahme konnte nicht gestartet werden: " + ex.Message; }
@@ -278,6 +301,7 @@ namespace PrefireMacro
             Swatch(first, cfg.HasFirst, cfg.FirstColor, "Farbe 1 · Voller Balken", cfg.FirstSamples.Count); Swatch(second, cfg.HasSecond, cfg.SecondColor, "Farbe 2 · Beschädigt", cfg.SecondSamples.Count);
             barDetector = new HealthBarDetector(cfg, (int)(tolerance.IsHandleCreated ? tolerance.Value : Math.Max(0, Math.Min(100, cfg.Tolerance))));
             shotDetector = new HealthBarDetector(cfg, (int)(tolerance.IsHandleCreated ? tolerance.Value : Math.Max(0, Math.Min(100, cfg.Tolerance))));
+            barDetector.Turbo = shotDetector.Turbo = turbo.Checked;
             tracker.Reset(); trigger.Reset();
         }
         void Swatch(Button label, bool has, int rgb, string name, int count)
@@ -429,7 +453,7 @@ namespace PrefireMacro
             try
             {
                 long captureStarted = Stopwatch.GetTimestamp();
-                barCapture.CaptureFrame(Native.GetForegroundWindow(), fastCapture.Checked && enabled.Checked);
+                barCapture.CaptureFrame(Native.GetForegroundWindow(), (fastCapture.Checked || turbo.Checked) && enabled.Checked);
                 long captureFinished = Stopwatch.GetTimestamp();
                 // Use the captured frame's time, not the timer tick before a
                 // potentially slow CopyFromScreen, for identity expiry and logs.
@@ -472,7 +496,7 @@ namespace PrefireMacro
             if (!HudAimGuard.HudNearAim(observation.Bounds, barCapture.LastArea, barCapture.LastClientSize))
             {
                 trigger.LoseTrackedTarget();
-                string block = "Balken zu weit vom Fadenkreuz – Ziel erneut anvisieren";
+                string block = observation.Bounds.IsEmpty ? "Kein bestätigtes Ziel – erst Lebensbalken anvisieren" : "Balken zu weit vom Fadenkreuz – Ziel erneut anvisieren";
                 trace.Add(now, true, held, observation, trigger.Status, "BLOCK: " + block);
                 recorder.Observe(barCapture.Frame, barCapture.LastArea, now, observation, block); UpdateStatus(block); return;
             }
@@ -496,6 +520,7 @@ namespace PrefireMacro
                 long firstFrameAt = barCapture.CapturedAtMs;
                 long firstFrameAppMs = scanClock.ElapsedMilliseconds - (ShotVerifier.ClockMs() - firstFrameAt);
                 int confirmationDelay = (int)lossDelay.Value;
+                bool turboVerification = turbo.Checked;
                 string verificationReason = "Noch nicht geprüft";
                 bool resumeObservation = false;
                 bool retryVerification = false;
@@ -542,7 +567,7 @@ namespace PrefireMacro
                         }); } catch (InvalidOperationException) { }
                 }, delegate {
                     if (adaptiveTiming != null) adaptiveTiming.Prepare();
-                    return shotVerifier.Check(shotWindow, shotProcess, knownHud, verifier, decisionArea, decisionClient, firstFrameAt, confirmationDelay, key, out verificationReason, out resumeObservation, out retryVerification, out restoredFrameAt, targetTransition);
+                    return shotVerifier.Check(shotWindow, shotProcess, knownHud, verifier, decisionArea, decisionClient, firstFrameAt, confirmationDelay, key, out verificationReason, out resumeObservation, out retryVerification, out restoredFrameAt, targetTransition, turboVerification);
                 }, delegate
                 {
                     if (!IsDisposed && IsHandleCreated) try { BeginInvoke((Action)delegate { if (!IsDisposed && lastScan == now) recorder.CaptureDetection(barCapture.Frame, barCapture.LastArea, now, "Schussentscheidung vor gesendeter Eingabe: " + observation.Reason); }); } catch (InvalidOperationException) { }
@@ -570,6 +595,7 @@ namespace PrefireMacro
             cfg.AdaptiveBuildAfter = adaptiveBuild.Checked;
             cfg.EditBuildGuard = editGuard.Checked;
             cfg.FastCapture = fastCapture.Checked;
+            cfg.TurboMode = turbo.Checked;
             cfg.ExtraPlacements = extras.Checked; cfg.ExtraStair = extraStair.Checked; cfg.ExtraFloor = extraFloor.Checked;
             cfg.StairKey = ((Choice)stairKey.SelectedItem).Key; cfg.FloorKey = ((Choice)floorKey.SelectedItem).Key; cfg.ExtraDelayMs = (int)extraDelay.Value;
             cfg.LossDelayMs = (int)lossDelay.Value;
@@ -811,6 +837,7 @@ namespace PrefireMacro
         {
             GateSequenceTests.Run(); BarTrackerTests.Run(); MaterialHudTests.Run(); AdaptiveTimingTests.Run();
             Check(!new Config().FastCapture, "GPU capture is opt-in for old and new configurations");
+            Check(!new Config().TurboMode, "turbo requires user selection");
             Check(!DesktopFrameCapture.RecentPresentation(0, 1000, 0), "Pointer-only update cannot supply a desktop frame");
             Check(!DesktopFrameCapture.RecentPresentation(990, 1000, 990), "Previously delivered frame cannot be relabelled fresh");
             Check(!DesktopFrameCapture.RecentPresentation(987, 1000, 980), "13ms desktop image is too old");
@@ -822,12 +849,12 @@ namespace PrefireMacro
             Check(!Trigger.Matches(0xFF0000, 0x0000FF, 25), "RGB channel distinction");
             Config c = new Config(); c.HasFirst = true; c.FirstColor = 0xABCDEF; c.X = -200;
             c.FirstSamples.Add(new PixelSample(-200, 140, 0xABCDEF)); c.SecondSamples.Add(new PixelSample(-190, 140, 0xFFA020)); c.BuildKey = 5;
-            c.AdaptiveBuildAfter = true; c.PlaceDelayMs = 15; c.EditBuildGuard = true; c.FastCapture = true;
+            c.AdaptiveBuildAfter = true; c.PlaceDelayMs = 15; c.EditBuildGuard = true; c.FastCapture = true; c.TurboMode = true;
             c.ExtraPlacements = true; c.ExtraFloor = true; c.StairKey = 6; c.FloorKey = 67; c.ExtraDelayMs = 45;
             using (StringReader legacy = new StringReader("<Config><BuildAfter>true</BuildAfter><BuildDelay>35</BuildDelay></Config>"))
             {
                 Config old = (Config)new XmlSerializer(typeof(Config)).Deserialize(legacy);
-                Check(old.BuildAfter && old.BuildDelay == 35 && !old.EditBuildGuard && !old.ExtraPlacements && !old.FastCapture, "legacy settings retain build timing and leave new options off");
+                Check(old.BuildAfter && old.BuildDelay == 35 && !old.EditBuildGuard && !old.ExtraPlacements && !old.FastCapture && !old.TurboMode, "legacy settings retain build timing and leave new options off");
             }
             using (MemoryStream stream = new MemoryStream())
             {
@@ -836,6 +863,7 @@ namespace PrefireMacro
                 Check(read.HasFirst && read.FirstColor == c.FirstColor && read.X == -200, "Config roundtrip");
                 Check(read.FirstSamples[0].X == -200 && read.SecondSamples[0].Rgb == 0xFFA020 && read.BuildKey == 5, "Sample lists and mouse button config");
                 Check(read.AdaptiveBuildAfter && read.PlaceDelayMs == 15 && read.EditBuildGuard && read.FastCapture, "Adaptive mode, fixed placement delay, GPU capture and optional edit guard persist together");
+                Check(read.TurboMode, "turbo preference survives config roundtrip");
                 Check(read.ExtraPlacements && read.ExtraFloor && read.ExtraStair && read.StairKey == 6 && read.FloorKey == 67 && read.ExtraDelayMs == 45, "extra placement options, keys and timing persist");
             }
             foreach (bool autoTiming in new bool[] { false, true })

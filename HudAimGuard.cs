@@ -10,7 +10,9 @@ namespace PrefireMacro
             double aimX = area.X + client.Width * .45, aimY = area.Y + client.Height * .35;
             double offsetY = hud.Y + hud.Height * .5 - aimY;
             return !hud.IsEmpty && area.Contains(hud) && Math.Abs(hud.X + hud.Width * .5 - aimX) <= client.Width * .22 &&
-                offsetY >= -client.Height * .20 && offsetY <= client.Height * .43;
+                // V27.4: ceiling HUDs at y=363..413 on a 1440px client
+                // were rejected before the tracked piece disappeared.
+                offsetY >= -client.Height * .27 && offsetY <= client.Height * .43;
         }
         // Small aim corrections must not erase a previously observed target.
         // Eligibility depends on the verified HUD position, not mouse packets.

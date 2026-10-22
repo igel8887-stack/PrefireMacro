@@ -5,10 +5,54 @@ using System.Runtime.InteropServices;
 using System.Diagnostics;
 namespace PrefireMacro
 {
+ internal interface IDesktopFrameSource : IDisposable
+ {
+  long ValidatedAtMs { get; }
+  bool Capture(Rectangle area, Bitmap target, long notBefore);
+ }
+ // One native owner, separate destination bitmaps. The lock also serializes
+ // reset/disposal with the immediate D3D context across UI and input threads.
+ internal sealed class SharedDesktopCapture : IDisposable
+ {
+  readonly object sync = new object();
+  readonly Func<Rectangle, IDesktopFrameSource> create;
+  IDesktopFrameSource source;
+  bool failed, disposed;
+  string failure;
+  internal SharedDesktopCapture() : this(delegate(Rectangle area) { return new DesktopFrameCapture(area); }) { }
+  internal SharedDesktopCapture(Func<Rectangle, IDesktopFrameSource> factory) { create = factory; }
+  internal bool TryCapture(Rectangle area, Bitmap target, long notBefore, bool allowInitialize, out long at, out string status, int freshBudgetMs = 0)
+  {
+   lock(sync)
+   {
+    at = 0; status = "GPU nicht bereit";
+    if(disposed) { status = "GPU geschlossen"; return false; }
+    if(failed) { status = failure; return false; }
+    if(source == null && !allowInitialize) return false;
+    try {
+     if(source == null) source = create(area);
+     long deadline = ShotVerifier.ClockMs() + Math.Max(0, Math.Min(3, freshBudgetMs));
+     while(!source.Capture(area, target, notBefore)) {
+      if(ShotVerifier.ClockMs() >= deadline) { status = "kein frisches GPU-Bild"; return false; }
+      System.Threading.Thread.SpinWait(64);
+     }
+     at = source.ValidatedAtMs; status = "GPU"; return true;
+    } catch(Exception ex) {
+     failed = true;
+     failure = "GPU nicht verfügbar (" + ex.GetType().Name + ", 0x" + ex.HResult.ToString("X8") + ": " + ex.Message + "); bis Fokus-/Optionswechsel GDI";
+     status = failure;
+     if(source != null) { try { source.Dispose(); } catch { } source = null; }
+     return false;
+    }
+   }
+  }
+  internal void Reset() { lock(sync) { if(source != null) { source.Dispose(); source = null; } failed = false; failure = null; } }
+  public void Dispose() { lock(sync) { if(disposed) return; disposed = true; if(source != null) { source.Dispose(); source = null; } } }
+ }
  // Windows DXGI/D3D11 interop. Slots and layouts checked against Microsoft WinSDK headers.
- // Each capture instance owns its DXGI/D3D resources. The verifier uses a separate
- // instance, serially, on the input worker. There is no shared background buffer.
- internal sealed class DesktopFrameCapture : IDisposable
+ // SharedDesktopCapture serializes access to one native owner. Tracking and
+ // verification have separate output bitmaps; there is no old-frame buffer.
+ internal sealed class DesktopFrameCapture : IDesktopFrameSource
  {
   [StructLayout(LayoutKind.Sequential)] internal struct Rect { internal int Left,Top,Right,Bottom; internal Rectangle Bounds {get{return Rectangle.FromLTRB(Left,Top,Right,Bottom);}} }
   [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] struct OutputDesc {
@@ -42,6 +86,8 @@ namespace PrefireMacro
   Size stagingSize; bool disposed;
   Acquire acquire; EndFrame end; Describe1 describe; CreateTexture create; CopyRegion copy; MapTexture map; UnmapTexture unmap;
   internal long ValidatedAtMs {get;private set;} internal long Version {get;private set;} internal string Status {get;private set;}
+  long IDesktopFrameSource.ValidatedAtMs { get { return ValidatedAtMs; } }
+  bool IDesktopFrameSource.Capture(Rectangle area, Bitmap target, long notBefore) { return Capture(area, target, notBefore); }
   internal Rectangle OutputBounds {get;private set;}
   static T Method<T>(IntPtr obj,int slot) where T:class {if(obj==IntPtr.Zero)throw new ArgumentException("Null COM interface");return (T)(object)Marshal.GetDelegateForFunctionPointer(Marshal.ReadIntPtr(Marshal.ReadIntPtr(obj),slot*IntPtr.Size),typeof(T));}
   static void Check(int hr,string action){if(hr<0)throw new ExternalException(action,hr);}

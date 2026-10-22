@@ -16,6 +16,7 @@ namespace PrefireMacro
             CheckAimLossPreservesInterlocks();
             CheckVisualPreflight();
             CheckDirectCaptureFreshness();
+            CheckSharedCapture();
             CheckWorkerConfirmation();
             CheckSlowFrameRecovery();
             CheckRestoredHudRecovery();
@@ -168,11 +169,56 @@ namespace PrefireMacro
             Check(!HudAimGuard.RequestConfirmation(gate, true, false, false, hud, area, client, 1000), "expired tracker target cannot request a shot despite an old in-range rectangle");
             Check(!HudAimGuard.RequestConfirmation(gate, true, false, true, hud, area, client, 1010), "expired observation clears previous arming");
         }
+        sealed class FakeDesktop : IDesktopFrameSource
+        {
+            internal int Calls, Disposals, Active, MaxActive;
+            internal bool Fail;
+            public long ValidatedAtMs { get; private set; }
+            public bool Capture(System.Drawing.Rectangle area, System.Drawing.Bitmap target, long notBefore)
+            {
+                int active = Interlocked.Increment(ref Active); MaxActive = Math.Max(MaxActive, active);
+                try { Calls++; Thread.Sleep(2); if (Fail) throw new System.Runtime.InteropServices.ExternalException("fixture failure", unchecked((int)0x887A0005)); ValidatedAtMs = notBefore + 1; return true; }
+                finally { Interlocked.Decrement(ref Active); }
+            }
+            public void Dispose() { Disposals++; }
+        }
+        static void CheckSharedCapture()
+        {
+            FakeDesktop backend = new FakeDesktop(); int creates = 0;
+            using (SharedDesktopCapture source = new SharedDesktopCapture(delegate(System.Drawing.Rectangle area) { creates++; return backend; }))
+            using (System.Drawing.Bitmap image = new System.Drawing.Bitmap(8, 8))
+            {
+                System.Drawing.Rectangle area = new System.Drawing.Rectangle(0, 0, 8, 8); long at; string status;
+                Check(!source.TryCapture(area, image, 100, false, out at, out status) && creates == 0, "verification never initializes a missing GPU source");
+                Check(source.TryCapture(area, image, 100, true, out at, out status) && creates == 1 && at == 101, "observation initializes one source");
+                Check(source.TryCapture(area, image, 121, false, out at, out status) && creates == 1 && at == 122, "verification reuses initialized source with post-filter deadline");
+                System.Threading.Tasks.Parallel.Invoke(delegate { long t; string s; source.TryCapture(area, image, 130, false, out t, out s); }, delegate { long t; string s; source.TryCapture(area, image, 140, false, out t, out s); });
+                Check(backend.MaxActive == 1, "native context operations are serialized across threads");
+                backend.Fail = true;
+                Check(!source.TryCapture(area, image, 150, false, out at, out status) && status.Contains("887A0005") && backend.Disposals == 1, "GPU failure reports native error and releases source");
+                int calls = backend.Calls;
+                Check(!source.TryCapture(area, image, 170, true, out at, out status) && creates == 1 && backend.Calls == calls, "failed source stays off without repeated setup stalls");
+                source.Reset(); backend = new FakeDesktop();
+                Check(!source.TryCapture(area, image, 190, false, out at, out status) && creates == 1, "reset still cannot initialize on verification path");
+                Check(source.TryCapture(area, image, 200, true, out at, out status) && creates == 2, "explicit reset permits observation to initialize again");
+                source.Dispose();
+                Check(!source.TryCapture(area, image, 220, true, out at, out status) && creates == 2 && backend.Disposals == 1, "closing prevents recreation");
+            }
+        }
         static void CheckAimPolicy()
         {
             System.Drawing.Size client = new System.Drawing.Size(2560, 1440);
             System.Drawing.Rectangle area = HealthBarDetector.SearchArea(new System.Drawing.Rectangle(System.Drawing.Point.Empty, client));
             Check(HudAimGuard.HudNearAim(new System.Drawing.Rectangle(1315, 604, 168, 18), area, client), "normal wall HUD remains eligible");
+            foreach (int y in new int[] { 363, 410, 413 })
+            {
+                System.Drawing.Rectangle panel = new System.Drawing.Rectangle(1013, y, 168, 18);
+                Check(HudAimGuard.HudNearAim(panel, area, client), "V27.4 marked ceiling target remains eligible above reticle");
+                PrefireGate ceiling = new PrefireGate(20);
+                Check(!HudAimGuard.RequestConfirmation(ceiling, true, true, true, panel, area, client, 100), "visible ceiling panel only arms");
+                Check(HudAimGuard.RequestConfirmation(ceiling, true, false, true, panel, area, client, 150), "loss of freshly tracked ceiling panel requests fresh verification");
+            }
+            Check(!HudAimGuard.HudNearAim(new System.Drawing.Rectangle(1013, 250, 168, 18), area, client), "very distant upper panel remains blocked");
             foreach (System.Drawing.Rectangle panel in new System.Drawing.Rectangle[] {
                 new System.Drawing.Rectangle(846, 1051, 168, 18), new System.Drawing.Rectangle(817, 1080, 168, 18),
                 new System.Drawing.Rectangle(1294, 1150, 168, 18), new System.Drawing.Rectangle(1290, 1208, 168, 16) })

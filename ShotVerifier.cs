@@ -7,7 +7,9 @@ namespace PrefireMacro
 {
     internal sealed class ShotVerifier : IDisposable
     {
-        readonly HealthBarCapture capture = new HealthBarCapture();
+        readonly HealthBarCapture capture;
+        internal ShotVerifier() { capture = new HealthBarCapture(); }
+        internal ShotVerifier(SharedDesktopCapture source) { capture = new HealthBarCapture(source); }
         internal long LastCheckedAtMs { get; private set; }
         internal static long ClockMs() { return (long)(Stopwatch.GetTimestamp() * (1000.0 / Stopwatch.Frequency)); }
         internal void Prepare(Rectangle area, Size client) { capture.Prepare(area, client); }
@@ -60,7 +62,7 @@ namespace PrefireMacro
             }
             return false;
         }
-        internal bool Check(IntPtr expectedWindow, uint expectedProcess, Rectangle known, HealthBarDetector detector, Rectangle expectedArea, Size expectedClient, long firstFrameAt, int delayMs, int holdKey, out string reason, out bool resumeObservation, out bool retryVerification, out long restoredAt, HudTransition transition = null)
+        internal bool Check(IntPtr expectedWindow, uint expectedProcess, Rectangle known, HealthBarDetector detector, Rectangle expectedArea, Size expectedClient, long firstFrameAt, int delayMs, int holdKey, out string reason, out bool resumeObservation, out bool retryVerification, out long restoredAt, HudTransition transition = null, bool turbo = false)
         {
             reason = "Nicht geprueft";
             LastCheckedAtMs = 0;
@@ -80,11 +82,10 @@ namespace PrefireMacro
                         { frameReason = "Haltetaste oder Fokus vor Aufnahme geaendert"; return false; }
                         if (!HealthBarCapture.ClientBounds(expectedWindow, out before) || before.Size != expectedClient || HealthBarDetector.SearchArea(before) != expectedArea)
                         { frameReason = "Spielbereich vor Pruefung verschoben oder skaliert"; return false; }
-                        // A second DXGI owner failed in the V27.3 live recording and
-                        // paid device setup + fallback inside the shot deadline.
-                        // Keep this independent fresh check on GDI; tracking can
-                        // still use the optional GPU path.
-                        capture.CaptureFrame(expectedWindow); long captured = ClockMs();
+                        // Turbo reuses only the already initialized tracking source.
+                        // Never create a device in this deadline, and never confirm
+                        // from a frame presented before the filter expired.
+                        capture.CaptureFrame(expectedWindow, turbo, firstFrameAt + delayMs - 1, false); long captured = ClockMs();
                         if (!Native.ForegroundMatches(expectedWindow, expectedProcess))
                         { frameReason = "Fokus waehrend Aufnahme gewechselt"; restoredHud = false; return false; }
                         Rectangle after;
