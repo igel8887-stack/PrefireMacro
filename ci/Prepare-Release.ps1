@@ -1,5 +1,7 @@
 param([Parameter(Mandatory=$true)][int]$BuildNumber,[Parameter(Mandatory=$true)][string]$Commit)
 $ErrorActionPreference = 'Stop'
+$signingValue = $env:PREFIRE_SIGNING_KEY
+Remove-Item Env:PREFIRE_SIGNING_KEY -ErrorAction SilentlyContinue
 if ($BuildNumber -lt 1 -or $BuildNumber -gt 2000000000 -or $Commit -notmatch '^[0-9a-f]{40}$') { throw 'Ungueltige Buildkennung.' }
 $projectRoot = Split-Path $PSScriptRoot
 $assemblyPath = Join-Path $projectRoot 'AssemblyInfo.cs'
@@ -17,8 +19,10 @@ $tag = 'build-{0}-{1}' -f $BuildNumber,$Commit.Substring(0,12)
 $assetRoot = "https://github.com/igel8887-stack/PrefireMacro/releases/download/$tag"
 $loaderVersion = '1.3.{0}.{1}' -f $revisionMajor,$revisionMinor
 $loaderParameters = @{ AssetRoot=$assetRoot; LoaderVersion=$loaderVersion }
-if ($env:GITHUB_ACTIONS -eq 'true') { $loaderParameters.UseGitHubSecret = $true }
-& (Join-Path $projectRoot 'Loader/build-loader.ps1') @loaderParameters
+try {
+ if ($env:GITHUB_ACTIONS -eq 'true') { $env:PREFIRE_SIGNING_KEY = $signingValue; $loaderParameters.UseGitHubSecret = $true }
+ & (Join-Path $projectRoot 'Loader/build-loader.ps1') @loaderParameters
+} finally { Remove-Item Env:PREFIRE_SIGNING_KEY -ErrorAction SilentlyContinue; $signingValue = $null }
 $publicRoot = Join-Path $projectRoot 'Loader/public'
 $engineReport = Join-Path $projectRoot ('artifacts/loader-tests-' + [Guid]::NewGuid().ToString('N'))
 $engineTest = Start-Process -FilePath (Join-Path $projectRoot 'Loader/PrefireLoader.exe') -ArgumentList '--self-test',('"{0}"' -f $engineReport) -WindowStyle Hidden -PassThru

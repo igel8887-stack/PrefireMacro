@@ -89,5 +89,5 @@ namespace PrefireDistribution { internal static class LoaderSettings {
  Write-Release '101.0.0.0' 'PrefireMacro.exe' $appFile (Join-Path $testRoot 'wrong-repo.release') 'https://github.com/other-owner/other-app/releases/download/test'
  Write-Release '101.0.0.0' 'PrefireMacro.exe' $appFile (Join-Path $testRoot 'wrong-host.release') 'https://example.com/releases/download/test'
  Write-Release '101.0.0.0' 'PrefireMacro.exe' $appFile (Join-Path $testRoot 'mutable-url.release') $FeedRoot
- Write-Output "Loader erstellt. App-Version $appVersion. Signierschlüssel bleibt lokal und ist mit Windows DPAPI geschützt."
+ Write-Output "Loader erstellt. App-Version $appVersion. Der private Signierschluessel wird nicht ausgeliefert."
 } finally { $rsa.Dispose() }

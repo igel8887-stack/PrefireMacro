@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+if (-not [string]::IsNullOrEmpty($env:PREFIRE_SIGNING_KEY)) { throw 'App-Tests duerfen keinen Signierschluessel in ihrer Prozessumgebung erhalten.' }
 $projectRoot = Split-Path $PSScriptRoot
 & (Join-Path $projectRoot 'build.ps1')
 if ($LASTEXITCODE -ne 0) { throw 'App-Build fehlgeschlagen.' }
