@@ -17,7 +17,7 @@ namespace PrefireMacro
         internal static bool RequestConfirmation(PrefireGate gate, bool held, bool visible, bool stable,
             Rectangle hud, Rectangle area, Size client, long now)
         {
-            if (!HudNearAim(hud, area, client) || (!visible && !stable)) { gate.Reset(); return false; }
+            if (!HudNearAim(hud, area, client) || (!visible && !stable)) { gate.LoseTrackedTarget(); return false; }
             return gate.RequestFreshConfirmation(held, visible, stable, now);
         }
     }

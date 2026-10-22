@@ -102,7 +102,8 @@ namespace PrefireMacro
                         }
                         if (beforeStep != null) beforeStep(step, result, delegate { return !cancel.WaitOne(0) && canContinue(); });
                         if (cancel.WaitOne(0) || !canContinue()) throw new OperationCanceledException();
-                        if (step.Down && held(step.Key)) throw new InvalidOperationException("Eine benötigte Taste ist bereits gehalten. Folge abgebrochen.");
+                        if (step.Down && held(step.Key)) throw new InvalidOperationException(
+                            "Taste bereits gehalten: VK=" + step.Key + "; Phase=" + (!result.ShotSent ? "Schuss" : step.Key == 1 ? "Platzierung" : "Bauauswahl") + ". Manuelle Eingabe hat Vorrang; Folge abgebrochen.");
                         if (!send(step.Key, step.Down)) throw new InvalidOperationException("Windows hat eine Eingabe nicht angenommen.");
                         long acceptedAt = Stopwatch.GetTimestamp();
                         result.Steps += (result.Steps.Length == 0 ? "" : "|") + step.Key + (step.Down ? "D" : "U") + "@" + acceptedAt;

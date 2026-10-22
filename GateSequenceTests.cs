@@ -13,12 +13,14 @@ namespace PrefireMacro
         {
             CheckBuildingCommit();
             CheckAimPolicy();
+            CheckAimLossPreservesInterlocks();
             CheckVisualPreflight();
             CheckWorkerConfirmation();
             CheckSlowFrameRecovery();
             CheckRestoredHudRecovery();
             CheckEditBuildSuppression();
             CheckExtraPlacements();
+            CheckPhysicalConflictDiagnostics();
             PrefireGate fast = new PrefireGate(20);
             fast.Step(true, true, true, 0); fast.Step(true, false, true, 10);
             Check(!fast.Step(true, false, true, 29) && fast.Step(true, false, true, 30), "20 ms loss filter requests the first decision at its configured threshold");
@@ -71,6 +73,26 @@ namespace PrefireMacro
             Check(!gate.Step(true, false, false, 4300), "unstable candidate invalidates previous armed target");
 
             CheckSequenceFailures();
+        }
+        static void CheckPhysicalConflictDiagnostics()
+        {
+            foreach (string phase in new string[] { "Schuss", "Bauauswahl", "Platzierung" })
+            {
+                int calls = 0; SequenceResult result = null;
+                HashSet<int> owned = new HashSet<int>();
+                using (ManualResetEvent done = new ManualResetEvent(false))
+                using (InputSequence sequence = new InputSequence(delegate(int key, bool down)
+                { calls++; if (down) owned.Add(key); else owned.Remove(key); return true; }, delegate(int key)
+                { return phase == "Schuss" ? key == 1 : phase == "Bauauswahl" ? key == 5 : key == 1 && calls >= 3; }))
+                {
+                    sequence.StartDetailed(InputSequence.Plan(true, 5, 35, 15), delegate { return true; }, delegate(SequenceResult value) { result = value; done.Set(); });
+                    Check(done.WaitOne(2000), "physical conflict diagnostic completes");
+                    Check(result.Outcome == "Failed" && result.Message.Contains("Phase=" + phase) && result.Message.Contains("VK=" + (phase == "Bauauswahl" ? 5 : 1)), "conflict identifies the actual key and phase");
+                    Check(owned.Count == 0 && !result.PlaceSent, "conflict leaves no owned key down or placement click");
+                    Check(result.ShotSent == (phase != "Schuss"), "conflict retains the actual first-input result");
+                    if (phase == "Schuss") Check(calls == 0, "physical shooting input is never overwritten");
+                }
+            }
         }
         static void CheckExtraPlacements()
         {
@@ -161,6 +183,31 @@ namespace PrefireMacro
             Check(!HudAimGuard.RequestConfirmation(gate, true, true, true, new System.Drawing.Rectangle(2300, 1080, 168, 18), area, client, 20) &&
                   !HudAimGuard.RequestConfirmation(gate, true, false, true, new System.Drawing.Rectangle(2300, 1080, 168, 18), area, client, 40), "moving the HUD far to the side clears arming and cannot fire on loss");
             Check(!HudAimGuard.RequestConfirmation(gate, true, false, false, System.Drawing.Rectangle.Empty, area, client, 60), "missing HUD at hold start never arms");
+        }
+        static void CheckAimLossPreservesInterlocks()
+        {
+            System.Drawing.Size client = new System.Drawing.Size(2560, 1440);
+            System.Drawing.Rectangle area = HealthBarDetector.SearchArea(new System.Drawing.Rectangle(System.Drawing.Point.Empty, client));
+            System.Drawing.Rectangle centered = new System.Drawing.Rectangle(1315, 604, 168, 18);
+            System.Drawing.Rectangle remote = new System.Drawing.Rectangle(2300, 1080, 168, 18);
+            PrefireGate gate = new PrefireGate(20);
+            HudAimGuard.RequestConfirmation(gate, true, true, true, centered, area, client, 100);
+            Check(HudAimGuard.RequestConfirmation(gate, true, false, true, centered, area, client, 120), "initial loss requests independent verification");
+            gate.ConfirmSent(130);
+            Check(!HudAimGuard.RequestConfirmation(gate, true, true, true, remote, area, client, 140), "looking away does not request input");
+            foreach (int now in new int[] { 150, 250, 350 })
+                Check(!HudAimGuard.RequestConfirmation(gate, true, true, true, centered, area, client, now), "visible reacquisition never requests input");
+            Check(!HudAimGuard.RequestConfirmation(gate, true, false, true, centered, area, client, 370), "looking away cannot erase the sent-input cooldown");
+            foreach (int now in new int[] { 440, 520, 600 })
+                Check(!HudAimGuard.RequestConfirmation(gate, true, true, true, centered, area, client, now), "new target waits through cooldown");
+            Check(HudAimGuard.RequestConfirmation(gate, true, false, true, centered, area, client, 620), "later target loss can request fresh verification");
+            gate.Reject("Physical input conflict");
+            HudAimGuard.RequestConfirmation(gate, true, true, true, remote, area, client, 630);
+            Check(!HudAimGuard.RequestConfirmation(gate, true, true, true, centered, area, client, 640) &&
+                !HudAimGuard.RequestConfirmation(gate, true, false, true, centered, area, client, 660), "aim movement cannot bypass a physical-input rejection");
+            HudAimGuard.RequestConfirmation(gate, false, true, true, centered, area, client, 700);
+            HudAimGuard.RequestConfirmation(gate, true, true, true, centered, area, client, 720);
+            Check(HudAimGuard.RequestConfirmation(gate, true, false, true, centered, area, client, 740), "physical release still clears the rejection");
         }
         static void CheckBuildingCommit()
         {

@@ -447,7 +447,7 @@ namespace PrefireMacro
             { StopPending(); trigger.Reset(); tracker.Reset(); releaseRequired = true; ClearPreview(); detectionStatus.Text = "Bildtest fehlgeschlagen: " + ex.Message; trace.Add(now, enabled.Checked, held, null, trigger.Status, "Capture-Fehler: " + ex.Message); UpdateStatus("Aufnahme nicht verfügbar"); return; }
             lastObservation = observation;
             if (!observation.Valid)
-            { StopPending(); trigger.Reset(); tracker.Reset(); releaseRequired = true; ClearPreview(); detectionStatus.Text = observation.Reason; trace.Add(now, enabled.Checked, held, observation, trigger.Status, "Ungültige Aufnahme – kein Schuss"); UpdateStatus("Aufnahme nicht verfügbar"); return; }
+            { StopPending(); if (observation.TrackingResetOnly) trigger.LoseTrackedTarget(); else trigger.Reset(); tracker.Reset(); releaseRequired = observation.ReleaseRequiredAfterInvalid(releaseRequired); ClearPreview(); detectionStatus.Text = observation.Reason; trace.Add(now, enabled.Checked, held, observation, trigger.Status, observation.TrackingResetOnly ? "Ziel am Aufnahmerand verloren – warte auf neuen Balken" : "Ungültige Aufnahme – kein Schuss"); UpdateStatus(observation.TrackingResetOnly ? "Neuen Lebensbalken anvisieren" : "Aufnahme nicht verfügbar"); return; }
             BarDetection result = new BarDetection { Found = observation.Present, Bounds = observation.Bounds, ColorNumber = observation.ColorNumber };
             lastDetection = result;
             bool visible = result.Found;
@@ -471,7 +471,7 @@ namespace PrefireMacro
             if (releaseRequired) { trace.Add(now, true, held, observation, trigger.Status, "BLOCK: Haltetaste zunächst loslassen"); UpdateStatus("Haltetaste erst loslassen"); return; }
             if (!HudAimGuard.HudNearAim(observation.Bounds, barCapture.LastArea, barCapture.LastClientSize))
             {
-                trigger.Reset();
+                trigger.LoseTrackedTarget();
                 string block = "Balken zu weit vom Fadenkreuz – Ziel erneut anvisieren";
                 trace.Add(now, true, held, observation, trigger.Status, "BLOCK: " + block);
                 recorder.Observe(barCapture.Frame, barCapture.LastArea, now, observation, block); UpdateStatus(block); return;
