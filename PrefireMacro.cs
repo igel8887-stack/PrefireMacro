@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -218,7 +218,7 @@ namespace PrefireMacro
             build.CheckedChanged += delegate { enabled.Checked = false; updateTimingFields(); };
             adaptiveBuild.CheckedChanged += delegate { enabled.Checked = false; updateTimingFields(); };
             editGuard.CheckedChanged += delegate { enabled.Checked = false; trace.Add(scanClock.ElapsedMilliseconds, false, false, lastObservation, trigger.Status, "Edit-Schutz geändert: " + editGuard.Checked); };
-            fastCapture.CheckedChanged += delegate { enabled.Checked = false; barCapture.ResetFastCapture(); tracker.Reset(); trigger.Reset(); ClearPreview(); };
+            fastCapture.CheckedChanged += delegate { enabled.Checked = false; barCapture.ResetFastCapture(); tracker.Reset(); trigger.Reset(); ClearPreview(); if (recorder.Recording) recorder.Marker("Aufnahmeweg geaendert; GPUCapture=" + fastCapture.Checked + "; Eingaben pausiert; Version=" + typeof(MainForm).Assembly.GetName().Version); };
             buildKey.SelectedIndexChanged += delegate { enabled.Checked = false; };
             foreach (CheckBox option in new CheckBox[] { extras, extraStair, extraFloor }) option.CheckedChanged += delegate { enabled.Checked = false; updateTimingFields(); };
             foreach (ComboBox option in new ComboBox[] { stairKey, floorKey }) option.SelectedIndexChanged += delegate { enabled.Checked = false; };
@@ -429,7 +429,7 @@ namespace PrefireMacro
             try
             {
                 long captureStarted = Stopwatch.GetTimestamp();
-                barCapture.CaptureFrame(Native.GetForegroundWindow(), fastCapture.Checked && enabled.Checked);
+                if (!barCapture.CaptureTrackingFrame(Native.GetForegroundWindow(), fastCapture.Checked && enabled.Checked)) return;
                 long captureFinished = Stopwatch.GetTimestamp();
                 // Use the captured frame's time, not the timer tick before a
                 // potentially slow CopyFromScreen, for identity expiry and logs.
@@ -447,7 +447,7 @@ namespace PrefireMacro
             { StopPending(); trigger.Reset(); tracker.Reset(); releaseRequired = true; ClearPreview(); detectionStatus.Text = "Bildtest fehlgeschlagen: " + ex.Message; trace.Add(now, enabled.Checked, held, null, trigger.Status, "Capture-Fehler: " + ex.Message); UpdateStatus("Aufnahme nicht verfügbar"); return; }
             lastObservation = observation;
             if (!observation.Valid)
-            { StopPending(); trigger.Reset(); tracker.Reset(); releaseRequired = true; ClearPreview(); detectionStatus.Text = observation.Reason; trace.Add(now, enabled.Checked, held, observation, trigger.Status, "Ungültige Aufnahme – kein Schuss"); UpdateStatus("Aufnahme nicht verfügbar"); return; }
+            { StopPending(); if (observation.TrackingResetOnly) trigger.LoseTrackedTarget(); else trigger.Reset(); tracker.Reset(); releaseRequired = observation.ReleaseRequiredAfterInvalid(releaseRequired); ClearPreview(); detectionStatus.Text = observation.Reason; trace.Add(now, enabled.Checked, held, observation, trigger.Status, observation.TrackingResetOnly ? "Ziel am Aufnahmerand verloren – warte auf neuen Balken" : "Ungültige Aufnahme – kein Schuss"); UpdateStatus(observation.TrackingResetOnly ? "Neuen Lebensbalken anvisieren" : "Aufnahme nicht verfügbar"); return; }
             BarDetection result = new BarDetection { Found = observation.Present, Bounds = observation.Bounds, ColorNumber = observation.ColorNumber };
             lastDetection = result;
             bool visible = result.Found;
@@ -471,7 +471,7 @@ namespace PrefireMacro
             if (releaseRequired) { trace.Add(now, true, held, observation, trigger.Status, "BLOCK: Haltetaste zunächst loslassen"); UpdateStatus("Haltetaste erst loslassen"); return; }
             if (!HudAimGuard.HudNearAim(observation.Bounds, barCapture.LastArea, barCapture.LastClientSize))
             {
-                trigger.Reset();
+                trigger.LoseTrackedTarget();
                 string block = "Balken zu weit vom Fadenkreuz – Ziel erneut anvisieren";
                 trace.Add(now, true, held, observation, trigger.Status, "BLOCK: " + block);
                 recorder.Observe(barCapture.Frame, barCapture.LastArea, now, observation, block); UpdateStatus(block); return;
@@ -494,6 +494,7 @@ namespace PrefireMacro
                 uint shotProcess; Native.GetWindowThreadProcessId(shotWindow, out shotProcess);
                 Rectangle decisionArea = barCapture.LastArea; Size decisionClient = barCapture.LastClientSize;
                 long firstFrameAt = barCapture.CapturedAtMs;
+                IRecentHudFrames recentFrames = fastCapture.Checked ? barCapture.RecentFrames : null;
                 long firstFrameAppMs = scanClock.ElapsedMilliseconds - (ShotVerifier.ClockMs() - firstFrameAt);
                 int confirmationDelay = (int)lossDelay.Value;
                 string verificationReason = "Noch nicht geprüft";
@@ -542,7 +543,7 @@ namespace PrefireMacro
                         }); } catch (InvalidOperationException) { }
                 }, delegate {
                     if (adaptiveTiming != null) adaptiveTiming.Prepare();
-                    return shotVerifier.Check(shotWindow, shotProcess, knownHud, verifier, decisionArea, decisionClient, firstFrameAt, confirmationDelay, key, out verificationReason, out resumeObservation, out retryVerification, out restoredFrameAt, targetTransition);
+                    return shotVerifier.Check(shotWindow, shotProcess, knownHud, verifier, decisionArea, decisionClient, firstFrameAt, confirmationDelay, key, out verificationReason, out resumeObservation, out retryVerification, out restoredFrameAt, targetTransition, recentFrames);
                 }, delegate
                 {
                     if (!IsDisposed && IsHandleCreated) try { BeginInvoke((Action)delegate { if (!IsDisposed && lastScan == now) recorder.CaptureDetection(barCapture.Frame, barCapture.LastArea, now, "Schussentscheidung vor gesendeter Eingabe: " + observation.Reason); }); } catch (InvalidOperationException) { }
@@ -682,7 +683,7 @@ namespace PrefireMacro
             }
             if (args.Length == 2 && args[0] == "--self-test")
             {
-                try { SelfTest(); File.WriteAllText(args[1], "PASS V27: restored-HUD recovery without an intervening visible timer frame, fresh-proof age/focus/cooldown guards and expired-target veto; target handoff across rear HUD, distinct-frame target recovery veto, guarded building after target loss, camera movement and same-position health recovery; 62ms stale frame discarded and distinct fast frame retried; restored wall vetoes retry; bounded same-hold recovery and expiry; optional edit guard keeps shot and suppresses both later downs with key cleanup; visible/damaged/black guard images; config compatibility and persistence; previous fixed/auto timing, focus/cancellation, material tracking, picker and debounce tests. All inputs mocked; no live placement confirmation."); }
+                try { SelfTest(); File.WriteAllText(args[1], "PASS V28 compatibility: restored-HUD recovery without an intervening visible timer frame, fresh-proof age/focus/cooldown guards and expired-target veto; target handoff across rear HUD, distinct-frame target recovery veto, guarded building after target loss, camera movement and same-position health recovery; 62ms stale frame discarded and distinct fast frame retried; restored wall vetoes retry; bounded same-hold recovery and expiry; optional edit guard keeps shot and suppresses both later downs with key cleanup; visible/damaged/black guard images; config compatibility and persistence; previous fixed/auto timing, focus/cancellation, material tracking, picker and debounce tests. All inputs mocked; no live placement confirmation."); }
                 catch (Exception ex) { File.WriteAllText(args[1], "FAIL: " + ex); Environment.ExitCode = 1; }
                 return;
             }
@@ -746,7 +747,7 @@ namespace PrefireMacro
                     {
                         testTimer.Stop();
                         bool ready = form.StartupReady;
-                        File.WriteAllText(args[1], ready ? "PASS V27: GUI starts paused, fixed/auto controls consistent, key selections exist, F6/F7/F8/F9/F10/F11 registered; no mouse-motion prerequisite. F12 marker uses physical edge polling." : "FAIL: startup / hotkey / timing UI availability.");
+                        File.WriteAllText(args[1], ready ? "PASS V28 compatibility: GUI starts paused, fixed/auto controls consistent, key selections exist, F6/F7/F8/F9/F10/F11 registered; no mouse-motion prerequisite. F12 marker uses physical edge polling." : "FAIL: startup / hotkey / timing UI availability.");
                         Environment.ExitCode = ready ? 0 : 1; form.Close();
                     };
                     form.Shown += delegate { testTimer.Start(); };

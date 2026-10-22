@@ -24,6 +24,14 @@ namespace PrefireMacro
             lossSince = stableSince = sentAt = retryAt = -1;
             status = "Warte auf einen stabilen Lebensbalken.";
         }
+        internal void LoseTrackedTarget()
+        {
+            // Looking away or losing a target at the image edge must not erase a
+            // committed-shot cooldown or a rejection that needs physical release.
+            armed = pending = false;
+            lossSince = stableSince = retryAt = -1;
+            if (!rejected) status = waitingForNewTarget ? "Eingabe gesendet – warte auf neuen Balken." : "Warte auf einen stabilen Lebensbalken.";
+        }
         public bool Step(bool held, bool visible, bool stable, long now)
         { return Step(held, visible, stable, now, false); }
         // The input worker must confirm a second, fresh missing frame after the filter.

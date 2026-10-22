@@ -29,9 +29,20 @@ namespace PrefireMacro
         }
         internal static bool FrameStillMissing(Bitmap frame, Rectangle area, Size client, Rectangle known, HealthBarDetector detector, HudTransition transition)
         { bool restored; return FrameStillMissing(frame, area, client, known, detector, out restored, transition); }
+        internal static bool TryRecentFrame(Func<bool> read, Func<bool> allowed, Func<long> clock, Action<int> wait, bool waitForNext)
+        {
+            long started = clock();
+            while (allowed())
+            {
+                if (read()) return allowed();
+                if (!waitForNext || clock() - started >= 12) return false;
+                wait(1);
+            }
+            return false;
+        }
         // Processing the first image counts toward the filter. Confirmation uses a
         // distinct capture, without waiting for another window-message timer tick.
-        internal static bool Confirm(long firstFrameAt, int delayMs, Func<long> clock, Action<int> wait, Func<bool> allowed, Func<bool> freshMissing, out string reason)
+        internal static bool Confirm(long firstFrameAt, int delayMs, Func<long> clock, Action<int> wait, Func<bool> allowed, Func<bool> freshMissing, out string reason, Func<long> frameTimestamp = null)
         {
             reason = "Nicht geprueft";
             if (firstFrameAt <= 0 || clock() < firstFrameAt) { reason = "Ungueltiger Bildzeitpunkt"; return false; }
@@ -48,13 +59,19 @@ namespace PrefireMacro
                 if (!freshMissing()) { reason = "HUD wieder sichtbar oder Aufnahme ungueltig"; return false; }
                 long elapsed = clock() - started;
                 if (elapsed > 50) { reason = "Frische Pruefung zu langsam: " + elapsed + " ms"; continue; }
+                if (frameTimestamp != null)
+                {
+                    long at = frameTimestamp(), checkedAt = clock();
+                    if (at < firstFrameAt + delayMs || at <= firstFrameAt || checkedAt < at || checkedAt - at > 50)
+                    { reason = "Frische Pruefung zu langsam: Bildzeitpunkt ungueltig oder veraltet"; continue; }
+                }
                 if (!allowed()) { reason = "Haltetaste oder Fokus waehrend Pruefung geaendert"; return false; }
                 reason = "Zweites fehlendes HUD bestaetigt; Bildabstand mindestens " + delayMs + " ms; frische Pruefung " + elapsed + " ms; Nachpruefungen=" + attempt;
                 return true;
             }
             return false;
         }
-        internal bool Check(IntPtr expectedWindow, uint expectedProcess, Rectangle known, HealthBarDetector detector, Rectangle expectedArea, Size expectedClient, long firstFrameAt, int delayMs, int holdKey, out string reason, out bool resumeObservation, out bool retryVerification, out long restoredAt, HudTransition transition = null)
+        internal bool Check(IntPtr expectedWindow, uint expectedProcess, Rectangle known, HealthBarDetector detector, Rectangle expectedArea, Size expectedClient, long firstFrameAt, int delayMs, int holdKey, out string reason, out bool resumeObservation, out bool retryVerification, out long restoredAt, HudTransition transition = null, IRecentHudFrames recentFrames = null)
         {
             reason = "Nicht geprueft";
             LastCheckedAtMs = 0;
@@ -69,15 +86,29 @@ namespace PrefireMacro
                     delegate { return Native.Held(holdKey) && Native.ForegroundMatches(expectedWindow, expectedProcess); },
                     delegate
                     {
-                        long captureStarted = ClockMs(); capture.CaptureFrame(expectedWindow); long captured = ClockMs();
+                        long captureStarted = ClockMs(); Rectangle client;
+                        if (!Native.Held(holdKey) || !Native.ForegroundMatches(expectedWindow, expectedProcess))
+                        { frameReason = "Haltetaste oder Fokus vor Aufnahme geaendert"; return false; }
+                        if (!HealthBarCapture.ClientBounds(expectedWindow, out client) || client.Size != expectedClient || HealthBarDetector.SearchArea(client) != expectedArea)
+                        { frameReason = "Spielbereich vor Pruefung verschoben oder skaliert"; return false; }
+                        long notBefore = Math.Max(capture.CapturedAtMs, firstFrameAt + delayMs - 1);
+                        bool gotRecent = recentFrames != null && TryRecentFrame(
+                            delegate { return capture.TrySharedFrame(recentFrames, expectedWindow, expectedProcess, client, expectedArea, notBefore); },
+                            delegate { return Native.Held(holdKey) && Native.ForegroundMatches(expectedWindow, expectedProcess); },
+                            ClockMs, Thread.Sleep, recentFrames.WaitingForNewFrames);
+                        if (!Native.Held(holdKey) || !Native.ForegroundMatches(expectedWindow, expectedProcess))
+                        { frameReason = "Haltetaste oder Fokus beim Warten geaendert"; return false; }
+                        if (!gotRecent) capture.CaptureFrame(expectedWindow);
+                        long captured = ClockMs();
                         if (!Native.ForegroundMatches(expectedWindow, expectedProcess))
                         { frameReason = "Fokus waehrend Aufnahme gewechselt"; restoredHud = false; return false; }
-                        if (capture.LastArea != expectedArea || capture.LastClientSize != expectedClient)
+                        Rectangle after;
+                        if (capture.LastArea != expectedArea || capture.LastClientSize != expectedClient || !HealthBarCapture.ClientBounds(expectedWindow, out after) || after != client)
                         { frameReason = "Spielbereich seit der Entscheidung verschoben oder skaliert"; return false; }
                         bool missing = FrameStillMissing(capture.Frame, capture.LastArea, capture.LastClientSize, known, detector, out restoredHud, transition);
-                        frameTimings += " [Aufnahme=" + (captured - captureStarted) + "ms; HUD=" + (ClockMs() - captured) + "ms]";
+                        frameTimings += " [Quelle=" + capture.CaptureBackend + "; Aufnahme=" + (captured - captureStarted) + "ms; HUD=" + (ClockMs() - captured) + "ms; Bildalter=" + (ClockMs() - capture.CapturedAtMs) + "ms]";
                         return missing;
-                    }, out reason);
+                    }, out reason, delegate { return capture.CapturedAtMs; });
                 resumeObservation = !result && restoredHud;
                 if (frameReason == null) LastCheckedAtMs = capture.CapturedAtMs;
                 if (resumeObservation && frameReason == null) restoredAt = capture.CapturedAtMs;

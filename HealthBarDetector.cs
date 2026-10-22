@@ -658,8 +658,8 @@ namespace PrefireMacro
         [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr window, out Rect rect);
         [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr window, ref Native.Point point);
         Bitmap frame;
-        DesktopFrameCapture fastCapture;
-        long fastRetryAt;
+        AsyncDesktopSource fastCapture;
+        internal IRecentHudFrames RecentFrames { get { return fastCapture; } }
         internal string CaptureBackend { get; private set; }
         internal Bitmap Frame { get { return frame; } }
         internal Rectangle LastArea { get; private set; }
@@ -678,31 +678,63 @@ namespace PrefireMacro
             return detector.Find(frame, LastArea, LastClientSize);
         }
         internal void CaptureFrame(IntPtr window, bool preferFast = false)
+        { CaptureFrameCore(window, preferFast, false); }
+        internal bool CaptureTrackingFrame(IntPtr window, bool preferFast)
+        { return CaptureFrameCore(window, preferFast, true); }
+        internal static bool WaitForTrackingFrame(bool running, long previous, long now)
+        { return running && previous > 0 && now >= previous && now - previous < 16; }
+        bool CaptureFrameCore(IntPtr window, bool preferFast, bool allowNextTick)
         {
             Rectangle client;
             if (!ClientBounds(window, out client)) throw new InvalidOperationException("Fortnite-Bildbereich nicht verfügbar.");
             Prepare(HealthBarDetector.SearchArea(client), client.Size);
-            if (preferFast && LastArea.Width >= 1200 && ShotVerifier.ClockMs() >= fastRetryAt)
+            if (preferFast && LastArea.Width >= 1200)
             {
                 try {
-                    if (fastCapture == null) fastCapture = new DesktopFrameCapture(LastArea);
+                    if (fastCapture == null) fastCapture = new AsyncDesktopSource(CaptureAllowed);
+                    uint process; Native.GetWindowThreadProcessId(window, out process);
+                    fastCapture.Configure(window, process, client, LastArea);
                     // RGB preserves opaque preview/recorder clones when the desktop texture's alpha is zero.
-                    if (frame.PixelFormat != PixelFormat.Format32bppRgb) { frame.Dispose(); frame = new Bitmap(LastArea.Width, LastArea.Height, PixelFormat.Format32bppRgb); }
-                    if (fastCapture.Capture(LastArea, frame, CapturedAtMs)) {
+                    EnsureRgb(); long presented;
+                    if (fastCapture.TryRead(window, process, client, LastArea, frame, CapturedAtMs, out presented)) {
                         Rectangle after;
                         if (Native.GetForegroundWindow() != window || !ClientBounds(window, out after) || after != client) throw new InvalidOperationException("Spielbereich während GPU-Aufnahme geändert");
-                        CapturedAtMs = fastCapture.ValidatedAtMs; CaptureBackend = "GPU"; return;
+                        CapturedAtMs = presented; CaptureBackend = "GPU Hintergrund"; return true;
                     }
-                    CaptureBackend = "GDI · kein frisches GPU-Bild";
+                    // Do not immediately replace a just-captured GDI frame with another GDI
+                    // frame before the asynchronous GPU can produce a later presentation.
+                    // A skipped tick must never classify or re-label the previous bitmap.
+                    if (allowNextTick && WaitForTrackingFrame(fastCapture.WaitingForNewFrames, CapturedAtMs, ShotVerifier.ClockMs()))
+                    { CaptureBackend = "Warte auf neues GPU-Bild"; return false; }
+                    CaptureBackend = "GDI · GPU " + fastCapture.Status;
                 }
                 catch (Exception ex) {
-                    ResetFastCapture(); fastRetryAt = ShotVerifier.ClockMs() + 5000;
+                    ResetFastCapture();
                     CaptureBackend = "GDI · GPU nicht verfügbar (" + ex.GetType().Name + ")";
                 }
             }
             else { if (!preferFast) ResetFastCapture(); CaptureBackend = preferFast ? "GDI · Kompatibilität" : "GDI"; }
             using (Graphics graphics = Graphics.FromImage(frame)) graphics.CopyFromScreen(LastArea.Location, Point.Empty, LastArea.Size);
             CapturedAtMs = ShotVerifier.ClockMs();
+            return true;
+        }
+        static bool CaptureAllowed(AsyncDesktopSource.Request request)
+        {
+            Rectangle current;
+            return Native.ForegroundMatches(request.Window, request.Process) && ClientBounds(request.Window, out current) && current == request.Client;
+        }
+        void EnsureRgb()
+        {
+            if (frame.PixelFormat != PixelFormat.Format32bppRgb)
+            { frame.Dispose(); frame = new Bitmap(LastArea.Width, LastArea.Height, PixelFormat.Format32bppRgb); }
+        }
+        internal bool TrySharedFrame(IRecentHudFrames source, IntPtr window, uint process, Rectangle client, Rectangle area, long notBefore)
+        {
+            if (source == null) return false;
+            Prepare(area, client.Size); EnsureRgb(); long presented;
+            if (!source.TryRead(window, process, client, area, frame, notBefore, out presented) ||
+                !DesktopFrameCapture.RecentPresentation(presented, ShotVerifier.ClockMs(), notBefore)) return false;
+            CapturedAtMs = presented; CaptureBackend = "GPU Hintergrund"; return true;
         }
         internal void ResetFastCapture() { if (fastCapture != null) { fastCapture.Dispose(); fastCapture = null; } }
         internal void Prepare(Rectangle area, Size client)

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
@@ -153,7 +153,7 @@ namespace PrefireMacro
                 using (Bitmap shot = new Bitmap(Width, Height)) { DrawToBitmap(shot, new Rectangle(Point.Empty, Size)); shot.Save(Path.Combine(directory, "scaled-150.png")); }
                 SuspendLayout(); Scale(new SizeF(4f / 3f, 4f / 3f)); foreach (System.Collections.Generic.KeyValuePair<Control, Font> item in fonts) item.Key.Font = new Font(item.Value.FontFamily, item.Value.Size * 2, item.Value.Style); ResumeLayout(true); Application.DoEvents();
                 using (Bitmap shot = new Bitmap(Width, Height)) { DrawToBitmap(shot, new Rectangle(Point.Empty, Size)); shot.Save(Path.Combine(directory, "scaled-200.png")); }
-                report.WriteLine("PASS V27: adaptive sidebar/top navigation, all three pages, native key selection, first-run guidance, named/tabbable 32px info buttons, contextual edit explanation, guard on/off availability, filter disclosure, fixed/auto controls; actual 734px compact width, persistent F10 pause action, bidirectional keyboard navigation, and simulated 150/200 percent screenshots. No automatic inputs.");
+                report.WriteLine("PASS V28 compatibility: adaptive sidebar/top navigation, all three pages, native key selection, first-run guidance, named/tabbable 32px info buttons, contextual edit explanation, guard on/off availability, filter disclosure, fixed/auto controls; actual 734px compact width, persistent F10 pause action, bidirectional keyboard navigation, and simulated 150/200 percent screenshots. No automatic inputs.");
             }
         }
         static System.Collections.Generic.IEnumerable<Control> Descendants(Control root)
@@ -165,7 +165,7 @@ namespace PrefireMacro
         }
         Button BuildInterface()
         {
-            Text = "Prefire V27.1"; Font = new Font("Segoe UI", 12); BackColor = DarkTheme.Window;
+            Text = "Prefire V28.2 Test"; Font = new Font("Segoe UI", 12); BackColor = DarkTheme.Window;
             AutoScaleDimensions = new SizeF(96, 96); AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(1180, 860); MinimumSize = new Size(900, 650); StartPosition = FormStartPosition.CenterScreen;
             if (Height > Screen.PrimaryScreen.WorkingArea.Height) Height = Screen.PrimaryScreen.WorkingArea.Height;
@@ -174,7 +174,7 @@ namespace PrefireMacro
             TableLayoutPanel toolbar = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(24, 16, 24, 8), ColumnCount = 2, RowCount = 2, Margin = Padding.Empty };
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 400)); toolbar.RowStyles.Add(new RowStyle(SizeType.Absolute, 48)); toolbar.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); shell.Controls.Add(toolbar, 0, 0); shell.SetColumnSpan(toolbar, 2);
             FlowLayoutPanel brand = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
-            Label brandName = Copy("Prefire", 20, true), version = Copy("V27.1", 10.5f); brandName.Margin = new Padding(0, 3, 14, 0); version.Margin = new Padding(0, 14, 0, 0); brand.Controls.Add(brandName); brand.Controls.Add(version); toolbar.Controls.Add(brand, 0, 0);
+            Label brandName = Copy("Prefire", 20, true), version = Copy("V28.2 Test", 10.5f); brandName.Margin = new Padding(0, 3, 14, 0); version.Margin = new Padding(0, 14, 0, 0); brand.Controls.Add(brandName); brand.Controls.Add(version); toolbar.Controls.Add(brand, 0, 0);
             FlowLayoutPanel actions = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Margin = Padding.Empty };
             enabled.Text = "Aktivieren · F8"; enabled.Appearance = Appearance.Button; enabled.TextAlign = ContentAlignment.MiddleCenter; enabled.Size = new Size(156, 42); enabled.Margin = new Padding(8, 0, 0, 0); enabled.AccessibleName = "Automatische Eingaben aktivieren oder pausieren"; actions.Controls.Add(enabled);
             Button pause = ActionButton("Pause · F10", 110, delegate { PauseNow(); }); pause.Margin = new Padding(8, 0, 0, 0); pause.AccessibleName = "Sofort pausieren (F10)"; actions.Controls.Add(pause); helpTips.SetToolTip(pause, "Pausiert sofort und bricht ausstehende Eingaben ab.");
@@ -228,8 +228,8 @@ namespace PrefireMacro
             previewHint.Text = "Noch kein Balken erkannt"; previewHint.Dock = DockStyle.Fill; previewHint.TextAlign = ContentAlignment.MiddleCenter; previewHint.Font = new Font("Segoe UI", 10.5f); previewHint.BackColor = DarkTheme.Field; previewHint.ForeColor = DarkTheme.Muted; barPreview.Controls.Add(previewHint); Row(live, Inline(barPreview));
             frameTiming.Text = "Bildzeiten: noch keine Messung"; frameTiming.AutoSize = true; frameTiming.Dock = DockStyle.Fill; frameTiming.Font = new Font("Segoe UI", 10.5f); frameTiming.AccessibleName = frameTiming.Text; frameTiming.AccessibleDescription = "Zeiten für Aufnahme und Erkennung des letzten Bildes, keine gesamte Reaktionszeit im Spiel."; Row(live, frameTiming);
             helpTips.SetToolTip(frameTiming, "Gemessene Verarbeitung des letzten Bildes. Aufnahme und Erkennung werden getrennt angezeigt. Das ist keine Messung der gesamten Reaktionszeit im Spiel.");
-            fastCapture.Text = "GPU-Aufnahme testen"; fastCapture.AutoSize = true; fastCapture.Checked = cfg.FastCapture;
-            Row(live, OptionHelp(fastCapture, "GPU-Aufnahme", "Optionaler Aufnahmeweg über Windows Desktop Duplication. Kann große Spielbilder schneller kopieren. In kontrollierten Tests war er bei kleinen Bildänderungen teils langsamer; eine Verbesserung in deinem Spiel ist noch nicht nachgewiesen.\n\nNur die aktivierte Erkennung nutzt ihn. Vor einem Schuss bleibt die unabhängige Prüfung mit der bisherigen Aufnahme bestehen. Es werden nur neue, höchstens 12 ms alte Desktopbilder verwendet. Ohne frisches Bild wird sofort die bisherige Aufnahme benutzt. HDR, gedrehte oder mehrere Monitore im Spielbereich verwenden ebenfalls die bisherige Aufnahme.\n\nZum Vergleichen auf die Anzeige GPU/GDI und die Aufnahmezeit achten. Standardmäßig aus. Eine Änderung pausiert das Tool; danach speichern und mit F8 aktivieren."));
+            fastCapture.Text = "GPU-Hintergrundaufnahme testen"; fastCapture.AutoSize = true; fastCapture.Checked = cfg.FastCapture;
+            Row(live, OptionHelp(fastCapture, "GPU-Aufnahme", "Die App holt neue Desktopbilder im Hintergrund. Beobachtung und erneute Schussprüfung bekommen jeweils private Bildkopien.\n\nVor dem Schuss muss ein anderes Bild nach dem Verlustfilter vorliegen. Fenster, Spielbereich und Bildalter werden geprüft. Übergebene GPU-Bilder dürfen höchstens 12 ms alt sein. Auf das nächste geeignete Bild wird höchstens 12 ms gewartet. Fehlt es dann, wird ein neues GDI-Bild aufgenommen. HDR, gedrehte oder mehrere Monitore im Spielbereich bleiben beim bisherigen Weg.\n\nTestversion: Eine schnellere gesamte Schussreaktion ist noch nicht nachgewiesen. Die Diagnose zeigt GPU Hintergrund oder GDI und getrennte Aufnahmezeiten. Standardmäßig aus. Eine Änderung pausiert das Tool; danach speichern und mit F8 aktivieren."));
             TableLayoutPanel building = Stack(18); Row(timing, building);
             Row(building, Topic("01  Wand nach dem Schuss", "Die Folge lautet: Linksklick zum Schießen → Bautaste → erneuter Linksklick zum Platzieren.\n\nWähle dieselbe Bautaste, die in Fortnite die Wand auswählt. XButton1 ist meist die hintere und XButton2 die vordere Daumentaste.\n\nDer Platzierungsklick bleibt 80 ms gehalten. Ein gesendeter Klick bestätigt noch nicht, dass der Server eine Wand platziert hat. Bei Fokusverlust oder F10 wird die Folge abgebrochen."));
             build.Text = "Nach dem Schuss bauen und platzieren"; build.AutoSize = true; build.Checked = cfg.BuildAfter; Row(building, Inline(build));

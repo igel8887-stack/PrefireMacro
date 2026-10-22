@@ -132,6 +132,19 @@ namespace PrefireMacro
             System.Drawing.Size client = new System.Drawing.Size(2560, 1440);
             System.Drawing.Rectangle area = HealthBarDetector.SearchArea(new System.Drawing.Rectangle(System.Drawing.Point.Empty, client));
             Check(HudAimGuard.HudNearAim(new System.Drawing.Rectangle(1315, 604, 168, 18), area, client), "normal wall HUD remains eligible");
+            foreach (System.Drawing.Rectangle recorded in new System.Drawing.Rectangle[] {
+                new System.Drawing.Rectangle(1780, 257, 168, 18),
+                new System.Drawing.Rectangle(1786, 280, 168, 18),
+                new System.Drawing.Rectangle(1791, 291, 168, 18) })
+            {
+                PrefireGate closeWall = new PrefireGate(20);
+                Check(HudAimGuard.HudNearAim(recorded, area, client), "recorded close-wall HUD is eligible above/right of the reticle");
+                Check(!HudAimGuard.RequestConfirmation(closeWall, true, true, true, recorded, area, client, 100), "a visible close-wall HUD only arms, never fires");
+                Check(!HudAimGuard.RequestConfirmation(closeWall, true, false, false, recorded, area, client, 120), "unconfirmed loss still cannot request a shot");
+                HudAimGuard.RequestConfirmation(closeWall, true, true, true, recorded, area, client, 160);
+                Check(HudAimGuard.RequestConfirmation(closeWall, true, false, true, recorded, area, client, 200), "later confirmed loss requests the independent fresh verification");
+            }
+            Check(!HudAimGuard.HudNearAim(new System.Drawing.Rectangle(2180, 420, 168, 18), area, client), "remote side HUD within the capture area remains ineligible");
             foreach (System.Drawing.Rectangle panel in new System.Drawing.Rectangle[] {
                 new System.Drawing.Rectangle(846, 1051, 168, 18), new System.Drawing.Rectangle(817, 1080, 168, 18),
                 new System.Drawing.Rectangle(1294, 1150, 168, 18), new System.Drawing.Rectangle(1290, 1208, 168, 16) })

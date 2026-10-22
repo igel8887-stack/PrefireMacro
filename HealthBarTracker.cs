@@ -7,6 +7,11 @@ namespace PrefireMacro
     internal sealed class BarObservation
     {
         public bool Valid = true, Present, Stable, RawFound;
+        // Edge loss invalidates this target, while the desktop image itself remains valid.
+        // A new target must be acquired; an earlier focus/error interlock stays in force.
+        internal bool TrackingResetOnly;
+        internal bool ReleaseRequiredAfterInvalid(bool alreadyRequired)
+        { return alreadyRequired || !TrackingResetOnly; }
         public Rectangle Bounds;
         internal HudTransition Transition;
         public int ColorNumber;
@@ -118,7 +123,7 @@ namespace PrefireMacro
             }
             double support = 0;
             if (target.Left - area.Left < target.Width / 3 || area.Right - target.Right < target.Width / 3 || target.Top - area.Top < target.Height * 2 || area.Bottom - target.Bottom < target.Height * 2)
-            { Reset(); return new BarObservation { Valid = false, Reason = "HUD am Aufnahmerand verloren – kein Schuss; Haltetaste loslassen." }; }
+            { Reset(); return new BarObservation { Valid = false, TrackingResetOnly = true, Reason = "HUD am Aufnahmerand verloren – kein Schuss; neuen Lebensbalken anvisieren." }; }
             if (detector.HasHudPanel(target, area, client))
             {
                 lastPresent = now;
@@ -204,6 +209,7 @@ namespace PrefireMacro
                 observation = tracker.Update(image, area, client, detector, 130); Check(!gate.Step(true, observation.Present, observation.Stable, 130), "short dropout");
                 draw(120, false); observation = tracker.Update(image, area, client, detector, 150); Check(!gate.Step(true, observation.Present, observation.Stable, 150), "bar returned without click");
                 graphics.Clear(Color.Black); observation = tracker.Update(image, area, client, detector, 170); Check(!observation.Valid, "black capture is invalid, not a wall disappearance");
+                Check(observation.ReleaseRequiredAfterInvalid(false), "invalid desktop still requires a physical release");
                 Check(!ShotVerifier.FrameStillMissing(image, area, client, new Rectangle(area.X + 450, area.Y + 300, 126, 12), detector), "fresh verification refuses a black capture");
                 tracker.Reset(); gate.Reset(); draw(120, false);
                 using (Bitmap edge = image.Clone(new Rectangle(450, 300, 126, 12), PixelFormat.Format32bppArgb))
@@ -212,6 +218,28 @@ namespace PrefireMacro
                 Check(observation.Present && observation.Stable, "edge fixture is initially visible");
                 graphics.Clear(Color.FromArgb(65, 55, 48)); observation = tracker.Update(image, area, client, detector, 260);
                 Check(!observation.Valid, "loss at the capture edge is uncertainty, not a firing decision");
+                Check(observation.TrackingResetOnly && !observation.ReleaseRequiredAfterInvalid(false), "edge loss waits for a new target without latching an unnecessary key release");
+                Check(observation.ReleaseRequiredAfterInvalid(true), "edge loss cannot clear a previous focus/error interlock");
+                gate.LoseTrackedTarget();
+                observation = tracker.Update(image, area, client, detector, 280);
+                Check(!observation.Stable && !gate.RequestFreshConfirmation(true, observation.Present, observation.Stable, 280), "empty image after edge reset cannot arm or request a shot");
+                draw(120, false);
+                foreach (int now in new int[] { 300, 320, 340 })
+                {
+                    observation = tracker.Update(image, area, client, detector, now);
+                    Check(!gate.RequestFreshConfirmation(true, observation.Present, observation.Stable, now), "reacquisition never fires on a visible target");
+                    if (now < 340) Check(!observation.Stable, "new target requires fresh acquisition confirmations");
+                }
+                Check(observation.Stable, "new centered target can re-arm with the same held key");
+                graphics.Clear(Color.FromArgb(65, 55, 48)); observation = tracker.Update(image, area, client, detector, 360);
+                Check(observation.Valid && gate.RequestFreshConfirmation(true, observation.Present, observation.Stable, 360), "only a later loss of the newly confirmed target requests fresh verification");
+                gate.ConfirmSent(361); gate.LoseTrackedTarget();
+                foreach (int now in new int[] { 400, 500, 600 }) Check(!gate.RequestFreshConfirmation(true, true, true, now), "target loss preserves the committed-shot cooldown");
+                Check(!gate.RequestFreshConfirmation(true, false, true, 620), "loss before cooldown completion cannot request another shot");
+                foreach (int now in new int[] { 660, 740, 820 }) Check(!gate.RequestFreshConfirmation(true, true, true, now), "new target must remain confirmed through cooldown recovery");
+                Check(gate.RequestFreshConfirmation(true, false, true, 840), "a later genuine loss can be checked after cooldown recovery");
+                gate.Reject("Synthetic hard rejection"); gate.LoseTrackedTarget();
+                Check(!gate.RequestFreshConfirmation(true, true, true, 900) && !gate.RequestFreshConfirmation(true, false, true, 940), "camera or edge loss cannot bypass a hard rejection");
                 tracker.Reset();
                 using (Bitmap moving = new Bitmap(126, 12, PixelFormat.Format32bppArgb))
                 {
