@@ -165,7 +165,7 @@ namespace PrefireMacro
         }
         Button BuildInterface()
         {
-            Text = "Prefire V27.2 Test"; Font = new Font("Segoe UI", 12); BackColor = DarkTheme.Window;
+            Text = "Prefire V27.3 Test"; Font = new Font("Segoe UI", 12); BackColor = DarkTheme.Window;
             AutoScaleDimensions = new SizeF(96, 96); AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(1180, 860); MinimumSize = new Size(900, 650); StartPosition = FormStartPosition.CenterScreen;
             if (Height > Screen.PrimaryScreen.WorkingArea.Height) Height = Screen.PrimaryScreen.WorkingArea.Height;
@@ -174,7 +174,7 @@ namespace PrefireMacro
             TableLayoutPanel toolbar = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(24, 16, 24, 8), ColumnCount = 2, RowCount = 2, Margin = Padding.Empty };
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 400)); toolbar.RowStyles.Add(new RowStyle(SizeType.Absolute, 48)); toolbar.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); shell.Controls.Add(toolbar, 0, 0); shell.SetColumnSpan(toolbar, 2);
             FlowLayoutPanel brand = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
-            Label brandName = Copy("Prefire", 20, true), version = Copy("V27.2 Test", 10.5f); brandName.Margin = new Padding(0, 3, 14, 0); version.Margin = new Padding(0, 14, 0, 0); brand.Controls.Add(brandName); brand.Controls.Add(version); toolbar.Controls.Add(brand, 0, 0);
+            Label brandName = Copy("Prefire", 20, true), version = Copy("V27.3 Test", 10.5f); brandName.Margin = new Padding(0, 3, 14, 0); version.Margin = new Padding(0, 14, 0, 0); brand.Controls.Add(brandName); brand.Controls.Add(version); toolbar.Controls.Add(brand, 0, 0);
             FlowLayoutPanel actions = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Margin = Padding.Empty };
             enabled.Text = "Aktivieren · F8"; enabled.Appearance = Appearance.Button; enabled.TextAlign = ContentAlignment.MiddleCenter; enabled.Size = new Size(156, 42); enabled.Margin = new Padding(8, 0, 0, 0); enabled.AccessibleName = "Automatische Eingaben aktivieren oder pausieren"; actions.Controls.Add(enabled);
             Button pause = ActionButton("Pause · F10", 110, delegate { PauseNow(); }); pause.Margin = new Padding(8, 0, 0, 0); pause.AccessibleName = "Sofort pausieren (F10)"; actions.Controls.Add(pause); helpTips.SetToolTip(pause, "Pausiert sofort und bricht ausstehende Eingaben ab.");

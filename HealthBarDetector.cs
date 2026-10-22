@@ -677,7 +677,7 @@ namespace PrefireMacro
             CaptureFrame(window);
             return detector.Find(frame, LastArea, LastClientSize);
         }
-        internal void CaptureFrame(IntPtr window, bool preferFast = false)
+        internal void CaptureFrame(IntPtr window, bool preferFast = false, long notBefore = -1)
         {
             Rectangle client;
             if (!ClientBounds(window, out client)) throw new InvalidOperationException("Fortnite-Bildbereich nicht verfügbar.");
@@ -688,7 +688,7 @@ namespace PrefireMacro
                     if (fastCapture == null) fastCapture = new DesktopFrameCapture(LastArea);
                     // RGB preserves opaque preview/recorder clones when the desktop texture's alpha is zero.
                     if (frame.PixelFormat != PixelFormat.Format32bppRgb) { frame.Dispose(); frame = new Bitmap(LastArea.Width, LastArea.Height, PixelFormat.Format32bppRgb); }
-                    if (fastCapture.Capture(LastArea, frame, CapturedAtMs)) {
+                    if (fastCapture.Capture(LastArea, frame, Math.Max(CapturedAtMs, notBefore))) {
                         Rectangle after;
                         if (Native.GetForegroundWindow() != window || !ClientBounds(window, out after) || after != client) throw new InvalidOperationException("Spielbereich während GPU-Aufnahme geändert");
                         CapturedAtMs = fastCapture.ValidatedAtMs; CaptureBackend = "GPU"; return;

@@ -15,6 +15,7 @@ namespace PrefireMacro
             CheckAimPolicy();
             CheckAimLossPreservesInterlocks();
             CheckVisualPreflight();
+            CheckDirectCaptureFreshness();
             CheckWorkerConfirmation();
             CheckSlowFrameRecovery();
             CheckRestoredHudRecovery();
@@ -93,6 +94,24 @@ namespace PrefireMacro
                     if (phase == "Schuss") Check(calls == 0, "physical shooting input is never overwritten");
                 }
             }
+        }
+        static void CheckDirectCaptureFreshness()
+        {
+            string reason;
+            foreach (long timestamp in new long[] { 100, 119, 125 })
+            {
+                long now = 124; int images = 0;
+                Check(!ShotVerifier.Confirm(100, 20, delegate { return now; }, delegate(int ms) { now += ms; }, delegate { return true; }, delegate { images++; return true; }, out reason, delegate { return timestamp; }), "GPU proof rejects duplicate, pre-filter or future presentation");
+                Check(images == 2, "unusable presentation retries at most one distinct capture");
+            }
+            long clock = 124;
+            Check(ShotVerifier.Confirm(100, 20, delegate { return clock; }, delegate(int ms) { clock += ms; }, delegate { return true; }, delegate { return true; }, out reason, delegate { return 120; }), "fresh GPU image at the filter boundary can confirm");
+            clock = 160;
+            Check(!ShotVerifier.Confirm(50, 20, delegate { return clock; }, delegate(int ms) { clock += ms; }, delegate { return true; }, delegate { return true; }, out reason, delegate { return 90; }), "presentation age is checked after classification");
+            clock = 124;
+            Check(!ShotVerifier.Confirm(100, 20, delegate { return clock; }, delegate(int ms) { clock += ms; }, delegate { return true; }, delegate { return false; }, out reason, delegate { return 120; }), "restored HUD vetoes even a fresh GPU image");
+            bool allowed = true;
+            Check(!ShotVerifier.Confirm(100, 20, delegate { return clock; }, delegate(int ms) { clock += ms; }, delegate { return allowed; }, delegate { allowed = false; return true; }, out reason, delegate { return 120; }), "focus or hold loss after classification prevents confirmation");
         }
         static void CheckExtraPlacements()
         {

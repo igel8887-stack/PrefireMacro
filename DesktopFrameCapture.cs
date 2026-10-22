@@ -6,7 +6,8 @@ using System.Diagnostics;
 namespace PrefireMacro
 {
  // Windows DXGI/D3D11 interop. Slots and layouts checked against Microsoft WinSDK headers.
- // Only the UI tracking capture owns this interface; final input verification uses GDI.
+ // Each capture instance owns its DXGI/D3D resources. The verifier uses a separate
+ // instance, serially, on the input worker. There is no shared background buffer.
  internal sealed class DesktopFrameCapture : IDisposable
  {
   [StructLayout(LayoutKind.Sequential)] internal struct Rect { internal int Left,Top,Right,Bottom; internal Rectangle Bounds {get{return Rectangle.FromLTRB(Left,Top,Right,Bottom);}} }
