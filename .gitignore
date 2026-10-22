@@ -1,0 +1,32 @@
+# Generated binaries and release data
+*.exe
+*.dll
+*.pdb
+*.zip
+*.bundle
+*.gz
+Loader/public/
+Loader/fixtures/
+Loader/LoaderSettings.cs
+
+# Local settings, recordings and diagnostics
+config.xml
+*.tmp
+Aufnahmen/
+Bildausschnitte/
+diagnostics/
+artifacts/
+.vs/
+
+# Credentials and signing material
+.env
+.env.*
+*.env
+*.dpapi
+*.pfx
+*.p12
+*.pem
+*.key
+id_rsa
+id_ed25519
+.vercel/

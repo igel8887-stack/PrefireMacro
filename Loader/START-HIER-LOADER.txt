@@ -1,0 +1,16 @@
+PREFIRE LOADER
+
+Nur PrefireLoader.exe an Freunde schicken. Falls Discord EXE-Dateien sperrt, das kleine PrefireLoader.zip verwenden.
+
+1. Loader speichern und öffnen.
+2. Nach der Versionsprüfung „Prefire starten“ klicken.
+3. Auf jedem PC Farben und Tasten selbst einrichten. Das Programm startet pausiert.
+
+F8: Aktivieren/Pausieren. F10: Sofort pausieren.
+Baufolge: Optional zusätzliche Treppen- und Bodenplatzierungen einschalten und eigene Fortnite-Tasten wählen.
+
+Bei jedem Öffnen prüft der Loader auf neue signierte Versionen. Der Herausgeber muss eine neue Version zuvor veröffentlichen. Bei einem Netzfehler bleibt eine geprüfte lokale Version verfügbar.
+
+Einstellungen und Aufnahmen bleiben lokal. Kein automatischer Upload. Keine Administratorrechte notwendig.
+
+Downloadseite: https://prefire-updates-igel8887-1179.vercel.app
