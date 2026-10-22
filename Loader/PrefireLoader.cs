@@ -20,6 +20,8 @@ namespace PrefireDistribution
         internal string Hash, Text;
         internal int Size;
         internal static Release Read(string text)
+        { return Read(text, null); }
+        internal static Release Read(string text, string expectedName)
         {
             string[] p = text.Replace("\r", "").TrimEnd('\n').Split('\n');
             if (p.Length != 5) throw new InvalidDataException("Ungültige Update-Datei.");
@@ -32,6 +34,12 @@ namespace PrefireDistribution
             Release r = new Release { Version = new Version(p[0]), Url = new Uri(p[1]), Hash = p[2], Size = Int32.Parse(p[3]), Text = text };
             if (r.Url.Scheme != "https" || r.Size < 1024 || r.Size > 32 * 1024 * 1024 || r.Hash.Length != 64) throw new InvalidDataException("Ungültige Update-Angaben.");
             foreach (char c in r.Hash) if (!Uri.IsHexDigit(c)) throw new InvalidDataException("Ungültige Prüfsumme.");
+            string[] path = r.Url.AbsolutePath.Split('/');
+            string name = path[path.Length - 1];
+            if (!r.Url.AbsoluteUri.StartsWith(LoaderSettings.DownloadPrefix, StringComparison.Ordinal) ||
+                path.Length != 7 || String.IsNullOrEmpty(path[5]) || r.Url.Query.Length != 0 || r.Url.Fragment.Length != 0 ||
+                (name != "PrefireMacro.exe" && name != "PrefireLoader.exe") || (expectedName != null && name != expectedName))
+                throw new InvalidDataException("Die Freigabe gehört nicht zur erwarteten Prefire-Datei auf GitHub.");
             return r;
         }
         internal void Check(byte[] bytes)
@@ -76,7 +84,7 @@ namespace PrefireDistribution
         internal string Install(Action<string> status)
         {
             string manifestPath = Path.Combine(Root, "installed.release"); Release installed = null;
-            if (File.Exists(manifestPath)) try { installed = Release.Read(File.ReadAllText(manifestPath)); installed.Check(File.ReadAllBytes(PayloadPath(installed))); AppPath = PayloadPath(installed); } catch { installed = null; }
+            if (File.Exists(manifestPath)) try { installed = Release.Read(File.ReadAllText(manifestPath), "PrefireMacro.exe"); installed.Check(File.ReadAllBytes(PayloadPath(installed))); AppPath = PayloadPath(installed); } catch { installed = null; }
             Version local = new Version(LoaderSettings.BundledVersion);
             bool validLocal = installed != null;
             if (validLocal) local = installed.Version;
@@ -87,7 +95,7 @@ namespace PrefireDistribution
                 try
                 {
                     status("Neueste Version prüfen …"); byte[] manifest = fetch(new Uri(LoaderSettings.Feed), 16384);
-                    if (manifest.Length > 16384) throw new InvalidDataException("Update-Datei zu groß."); Release latest = Release.Read(Encoding.UTF8.GetString(manifest));
+                    if (manifest.Length > 16384) throw new InvalidDataException("Update-Datei zu groß."); Release latest = Release.Read(Encoding.UTF8.GetString(manifest), "PrefireMacro.exe");
                     if (latest.Version < local) throw new InvalidDataException("Ein älteres Update wurde abgelehnt.");
                     if (!validLocal || latest.Version > local || !String.Equals(latest.Hash, Release.HashBytes(File.ReadAllBytes(AppPath)), StringComparison.OrdinalIgnoreCase))
                     {
@@ -130,7 +138,7 @@ namespace PrefireDistribution
             card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); card.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); card.RowStyles.Add(new RowStyle(SizeType.Absolute, 18)); card.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); grid.Controls.Add(card, 0, 2);
             state.Dock = DockStyle.Fill; state.Font = new Font(Font, FontStyle.Bold); state.AutoEllipsis = true; state.Text = "Update vorbereiten …"; state.Margin = Padding.Empty; state.AccessibleName = "Status der Updateprüfung"; card.Controls.Add(state, 0, 0);
             progress.Dock = DockStyle.Fill; progress.Height = 5; progress.Margin = new Padding(0, 0, 0, 10); progress.Style = ProgressBarStyle.Marquee; progress.MarqueeAnimationSpeed = 25; progress.AccessibleName = "Updateprüfung läuft"; card.Controls.Add(progress, 0, 1);
-            detail.Dock = DockStyle.Fill; detail.ForeColor = DarkTheme.Muted; detail.Margin = new Padding(0, 12, 0, 0); detail.Text = "Prüft auf eine neue, signierte Version.\n\nEinstellungen und Aufnahmen bleiben auf diesem PC."; detail.AutoEllipsis = true; detail.AccessibleName = "Details der Updateprüfung"; card.Controls.Add(detail, 0, 2);
+            detail.Dock = DockStyle.Fill; detail.ForeColor = DarkTheme.Muted; detail.Margin = new Padding(0, 12, 0, 0); detail.Text = "Prüft GitHub Releases auf eine neue, signierte Prefire-Version.\n\nEinstellungen und Aufnahmen bleiben auf diesem PC."; detail.AutoEllipsis = true; detail.AccessibleName = "Details der Updateprüfung"; card.Controls.Add(detail, 0, 2);
             Label footnote = new Label { Text = "Starte künftig über den Loader: Er prüft jedes Mal auf Updates.\nPrefire startet pausiert. Die Farben richtet jeder PC einmal selbst ein.", Dock = DockStyle.Fill, ForeColor = DarkTheme.Muted, Font = new Font(Font.FontFamily, 10.5f), Margin = Padding.Empty }; grid.Controls.Add(footnote, 0, 3);
             TableLayoutPanel actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
             actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); grid.Controls.Add(actions, 0, 4);
@@ -218,6 +226,12 @@ namespace PrefireDistribution
             engine.Install(delegate { }); check(downloads == 1, "current version needs no binary download");
             offline = true; engine = new UpdateEngine(engine.Root, transport); engine.Install(delegate { }); check(engine.AppPath == upgraded, "offline signed cached version");
             offline = false; manifest = File.ReadAllBytes(Path.Combine(fixtures, "older.release")); engine.Install(delegate { }); check(engine.AppPath == upgraded && downloads == 1, "downgrade rejected");
+            foreach (string invalidSource in new string[] { "wrong-file.release", "wrong-repo.release", "wrong-host.release", "mutable-url.release" })
+            {
+                manifest = File.ReadAllBytes(Path.Combine(fixtures, invalidSource));
+                engine.Install(delegate { });
+                check(engine.AppPath == upgraded && downloads == 1, "valid signature still refuses unexpected GitHub asset/source: " + invalidSource);
+            }
             manifest = File.ReadAllBytes(Path.Combine(fixtures, "next.release")); byte[] valid = (byte[])manifest.Clone(); manifest[0] ^= 1;
             engine.Install(delegate { }); check(engine.AppPath == upgraded && downloads == 1, "changed signed manifest rejected before download");
             manifest = valid; payload = new byte[1024]; engine.Install(delegate { }); check(engine.AppPath == upgraded, "truncated download retains current version");
@@ -233,7 +247,7 @@ namespace PrefireDistribution
             check(Release.HashBytes(File.ReadAllBytes(engine.AppPath)) == LoaderSettings.BundledHash, "corrupt cache offline repaired with verified bundle");
             string publicRoot = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "public");
             string selfRoot = Path.Combine(directory, "self-update");
-            string signedLoader = File.ReadAllText(Path.Combine(publicRoot, "loader.release")); Release loaderRelease = Release.Read(signedLoader);
+            string signedLoader = File.ReadAllText(Path.Combine(publicRoot, "loader.release")); Release loaderRelease = Release.Read(signedLoader, "PrefireLoader.exe");
             string staged = Path.Combine(selfRoot, "LoaderUpdates", loaderRelease.Hash.ToLowerInvariant(), "PrefireLoader.exe");
             UpdateEngine.AtomicWrite(staged, File.ReadAllBytes(Path.Combine(publicRoot, "PrefireLoader.exe")));
             string stagedManifest = Path.Combine(Path.GetDirectoryName(staged), "loader.release");
@@ -268,7 +282,7 @@ namespace PrefireDistribution
                 {
                     // A completed self-update retains its signed manifest in this hash-addressed directory.
                     // Do not undo it merely because somebody opens an older downloaded copy while offline.
-                    Release installed = Release.Read(File.ReadAllText(Path.Combine(root, "LoaderUpdates", hash, "loader.release")));
+                    Release installed = Release.Read(File.ReadAllText(Path.Combine(root, "LoaderUpdates", hash, "loader.release")), "PrefireLoader.exe");
                     installed.Check(previous);
                     if (installed.Version >= new Version(LoaderSettings.LoaderVersion)) return canonical;
                 }
@@ -287,7 +301,7 @@ namespace PrefireDistribution
             try
             {
                 status("Loader-Version prüfen …");
-                Release latest = Release.Read(Encoding.UTF8.GetString(UpdateEngine.Download(new Uri(LoaderSettings.LoaderFeed), 16384)));
+                Release latest = Release.Read(Encoding.UTF8.GetString(UpdateEngine.Download(new Uri(LoaderSettings.LoaderFeed), 16384)), "PrefireLoader.exe");
                 if (latest.Version <= new Version(LoaderSettings.LoaderVersion)) return false;
                 byte[] bytes = UpdateEngine.Download(latest.Url, latest.Size); latest.Check(bytes);
                 string stage = Path.Combine(root, "LoaderUpdates", latest.Hash.ToLowerInvariant(), "PrefireLoader.exe");
@@ -309,7 +323,7 @@ namespace PrefireDistribution
         }
         static void ApplyLoader(string root, string self, Action waitForParent)
         {
-            Release release = Release.Read(File.ReadAllText(Path.Combine(Path.GetDirectoryName(self), "loader.release")));
+            Release release = Release.Read(File.ReadAllText(Path.Combine(Path.GetDirectoryName(self), "loader.release")), "PrefireLoader.exe");
             string expected = Path.Combine(root, "LoaderUpdates", release.Hash.ToLowerInvariant(), "PrefireLoader.exe");
             if (!String.Equals(Path.GetFullPath(self), Path.GetFullPath(expected), StringComparison.OrdinalIgnoreCase) || release.Version != new Version(LoaderSettings.LoaderVersion)) throw new InvalidDataException("Ungültige Loader-Aktualisierung.");
             byte[] bytes = File.ReadAllBytes(self); release.Check(bytes);

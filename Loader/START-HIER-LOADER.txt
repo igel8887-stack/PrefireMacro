@@ -9,8 +9,10 @@ Nur PrefireLoader.exe an Freunde schicken. Falls Discord EXE-Dateien sperrt, das
 F8: Aktivieren/Pausieren. F10: Sofort pausieren.
 Baufolge: Optional zusätzliche Treppen- und Bodenplatzierungen einschalten und eigene Fortnite-Tasten wählen.
 
-Bei jedem Öffnen prüft der Loader auf neue signierte Versionen. Der Herausgeber muss eine neue Version zuvor veröffentlichen. Bei einem Netzfehler bleibt eine geprüfte lokale Version verfügbar.
+Bei jedem Öffnen prüft der Loader GitHub Releases auf neue signierte Prefire-Versionen. Erfolgreich gebaute und getestete Änderungen auf main werden dort veröffentlicht. Bei einem Netzfehler bleibt eine geprüfte lokale Version verfügbar.
 
 Einstellungen und Aufnahmen bleiben lokal. Kein automatischer Upload. Keine Administratorrechte notwendig.
 
-Downloadseite: https://prefire-updates-igel8887-1179.vercel.app
+Downloadseite: https://github.com/igel8887-stack/PrefireMacro/releases/latest
+
+Einmalig den bisherigen Vercel-Loader gegen diesen GitHub-Loader tauschen. Danach dieselbe Datei weiterverwenden. Auch Loader-Updates werden geprüft und signiert geladen.

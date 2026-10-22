@@ -1,0 +1,50 @@
+name: Prefire - Build, Test und Release
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prefire-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: App bauen und Eingaben simuliert testen
+        shell: powershell
+        run: ./ci/Test-Prefire.ps1
+
+  release:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Versionieren, bauen, signieren und Loader testen
+        shell: powershell
+        env:
+          PREFIRE_SIGNING_KEY: ${{ secrets.PREFIRE_SIGNING_KEY }}
+          RELEASE_BUILD_NUMBER: ${{ github.run_number }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: ./ci/Prepare-Release.ps1 -BuildNumber ([int]$env:RELEASE_BUILD_NUMBER) -Commit $env:RELEASE_COMMIT
+      - name: Vollstaendige Freigabe auf GitHub veroeffentlichen
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./ci/Publish-Release.ps1
