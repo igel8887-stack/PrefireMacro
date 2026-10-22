@@ -1,7 +1,19 @@
-param([string]$FeedRoot = 'https://prefire-updates-igel8887-1179.vercel.app', [string]$LoaderVersion = '1.2.2.0', [switch]$InitializeSigningKey)
+param(
+ [string]$FeedRoot = 'https://github.com/igel8887-stack/PrefireMacro/releases/latest/download',
+ [string]$AssetRoot,
+ [string]$LoaderVersion = '1.3.0.0',
+ [switch]$UseGitHubSecret,
+ [switch]$InitializeSigningKey
+)
 $ErrorActionPreference = 'Stop'
-$expectedSignerFile = Join-Path $env:LOCALAPPDATA 'PrefirePublisher/release-key.dpapi'
-if (-not (Test-Path -LiteralPath $expectedSignerFile) -and -not $InitializeSigningKey) {
+if (-not $AssetRoot) { $AssetRoot = $FeedRoot }
+$githubPrefix = 'https://github.com/igel8887-stack/PrefireMacro/releases/download/'
+if ($FeedRoot -ne 'https://github.com/igel8887-stack/PrefireMacro/releases/latest/download' -or -not $AssetRoot.StartsWith($githubPrefix, [StringComparison]::Ordinal) -or $AssetRoot.Substring($githubPrefix.Length) -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+ throw 'GitHub-Freigaben brauchen die feste Repository-Adresse und einen unveraenderlichen Release-Tag als AssetRoot.'
+}
+$expectedSignerFile = Join-Path $env:LOCALAPPDATA 'PrefirePublisher/github-release-key.dpapi'
+if ($UseGitHubSecret -and [string]::IsNullOrWhiteSpace($env:PREFIRE_SIGNING_KEY)) { throw 'PREFIRE_SIGNING_KEY fehlt.' }
+if (-not $UseGitHubSecret -and -not (Test-Path -LiteralPath $expectedSignerFile) -and -not $InitializeSigningKey) {
     throw 'Kein Freigabeschluessel auf diesem PC. Fuer normale Mitarbeit nur build.ps1 verwenden. Nur der Herausgeber baut und signiert Loader-Freigaben. -InitializeSigningKey erstellt eine neue Vertrauensbasis und ist kein Import des bestehenden Schluessels.'
 }
 Add-Type -AssemblyName System.Security
@@ -18,17 +30,23 @@ $ownerAcl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new($owne
 $existingRules = (Get-Acl -LiteralPath $ownerRoot).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
 $restricted = (Get-Acl -LiteralPath $ownerRoot).AreAccessRulesProtected -and $existingRules.Count -eq 1 -and $existingRules[0].IdentityReference -eq $ownerSid -and $existingRules[0].AccessControlType -eq 'Allow' -and $existingRules[0].FileSystemRights -eq 'FullControl'
 if (-not $restricted) { Set-Acl -LiteralPath $ownerRoot -AclObject $ownerAcl }
-$keyFile = Join-Path $ownerRoot 'release-key.dpapi'
+$keyFile = $expectedSignerFile
 $rsa = [Security.Cryptography.RSACryptoServiceProvider]::new(3072)
 $rsa.PersistKeyInCsp = $false
 try {
- if (Test-Path -LiteralPath $keyFile) {
+ if ($UseGitHubSecret) {
+  $privateBytes = [Convert]::FromBase64String($env:PREFIRE_SIGNING_KEY)
+  Remove-Item Env:PREFIRE_SIGNING_KEY
+  try { $rsa.FromXmlString([Text.Encoding]::UTF8.GetString($privateBytes)) } finally { [Array]::Clear($privateBytes, 0, $privateBytes.Length) }
+ } elseif (Test-Path -LiteralPath $keyFile) {
   $privateBytes = [Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes($keyFile), $null, 'CurrentUser')
   try { $rsa.FromXmlString([Text.Encoding]::UTF8.GetString($privateBytes)) } finally { [Array]::Clear($privateBytes, 0, $privateBytes.Length) }
  } else {
   $privateBytes = [Text.Encoding]::UTF8.GetBytes($rsa.ToXmlString($true))
   try { [IO.File]::WriteAllBytes($keyFile, [Security.Cryptography.ProtectedData]::Protect($privateBytes, $null, 'CurrentUser')) } finally { [Array]::Clear($privateBytes, 0, $privateBytes.Length) }
  }
+ $pinPath = Join-Path $loaderRoot 'GitHubReleasePublicKey.xml'
+ if (-not (Test-Path -LiteralPath $pinPath) -or [IO.File]::ReadAllText($pinPath).Trim() -ne $rsa.ToXmlString($false)) { throw 'Signierschluessel entspricht nicht dem festgelegten GitHub-Freigabeschluessel.' }
  [IO.Directory]::CreateDirectory($publicRoot) | Out-Null
  [IO.Directory]::CreateDirectory($testRoot) | Out-Null
  $appBytes = [IO.File]::ReadAllBytes($appFile)
@@ -42,6 +60,7 @@ namespace PrefireDistribution { internal static class LoaderSettings {
  internal const string Feed = "$FeedRoot/latest.release";
  internal const string LoaderFeed = "$FeedRoot/loader.release";
  internal const string LoaderVersion = "$LoaderVersion";
+ internal const string DownloadPrefix = "$githubPrefix";
 } }
 "@
  [IO.File]::WriteAllText((Join-Path $loaderRoot 'LoaderSettings.cs'), $settings, [Text.UTF8Encoding]::new($true))
@@ -52,10 +71,10 @@ namespace PrefireDistribution { internal static class LoaderSettings {
  $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
  & $compiler /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll ("/resource:{0},main.gz" -f $gzipFile) ("/out:{0}" -f (Join-Path $loaderRoot 'PrefireLoader.exe')) (Join-Path $loaderRoot 'PrefireLoader.cs') (Join-Path $loaderRoot 'LoaderSettings.cs') (Join-Path (Split-Path $loaderRoot) 'DarkTheme.cs')
  if ($LASTEXITCODE -ne 0) { throw 'Loader-Kompilierung fehlgeschlagen.' }
- function Write-Release([string]$Version, [string]$Name, [string]$Binary, [string]$Destination) {
+ function Write-Release([string]$Version, [string]$Name, [string]$Binary, [string]$Destination, [string]$DownloadRoot = $AssetRoot) {
   $releaseHash = (Get-FileHash -LiteralPath $Binary -Algorithm SHA256).Hash.ToLowerInvariant()
   $releaseSize = (Get-Item -LiteralPath $Binary).Length
-  $body = "$Version`n$FeedRoot/$Name`n$releaseHash`n$releaseSize`n"
+  $body = "$Version`n$DownloadRoot/$Name`n$releaseHash`n$releaseSize`n"
   $signature = [Convert]::ToBase64String($rsa.SignData([Text.Encoding]::UTF8.GetBytes($body), 'SHA256'))
   [IO.File]::WriteAllText($Destination, $body + $signature + "`n", [Text.UTF8Encoding]::new($false))
  }
@@ -66,5 +85,9 @@ namespace PrefireDistribution { internal static class LoaderSettings {
  Write-Release '99.0.0.0' 'PrefireMacro.exe' $appFile (Join-Path $testRoot 'upgrade.release')
  Write-Release '100.0.0.0' 'PrefireMacro.exe' $appFile (Join-Path $testRoot 'next.release')
  Write-Release '0.1.0.0' 'PrefireMacro.exe' $appFile (Join-Path $testRoot 'older.release')
+ Write-Release '101.0.0.0' 'PrefireLoader.exe' $appFile (Join-Path $testRoot 'wrong-file.release')
+ Write-Release '101.0.0.0' 'PrefireMacro.exe' $appFile (Join-Path $testRoot 'wrong-repo.release') 'https://github.com/other-owner/other-app/releases/download/test'
+ Write-Release '101.0.0.0' 'PrefireMacro.exe' $appFile (Join-Path $testRoot 'wrong-host.release') 'https://example.com/releases/download/test'
+ Write-Release '101.0.0.0' 'PrefireMacro.exe' $appFile (Join-Path $testRoot 'mutable-url.release') $FeedRoot
  Write-Output "Loader erstellt. App-Version $appVersion. Signierschlüssel bleibt lokal und ist mit Windows DPAPI geschützt."
 } finally { $rsa.Dispose() }
