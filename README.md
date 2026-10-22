@@ -12,9 +12,13 @@ Beim Oeffnen prueft der Loader **GitHub Releases** auf die neueste stabile Prefi
 
 Dateien auf `main` bearbeiten und committen. Unter **Actions** den Lauf von „Prefire - Build, Test und Release“ verfolgen. Nur wenn App-Build, Selbsttest, Loader-Build und Loader-Selbsttest bestehen, wird ein vollstaendiges GitHub Release veroeffentlicht. Eine numerische Buildversion wird automatisch vergeben. Der vorhandene GitHub-Loader findet es beim naechsten Oeffnen.
 
-Aenderungen auf `experiment/v28` oder `fix/v27-target-recovery` gehen nicht automatisch an alle Nutzer. V28 und V27.2 Test sind nicht die stabile Hauptversion. Fremde Pull Requests erhalten den Signierschluessel nicht.
+Aenderungen auf anderen Branches gehen nicht automatisch an alle Nutzer. Fremde Pull Requests erhalten den Signierschluessel nicht.
 
 Die Vercel-Loaderdatei muss **einmal** gegen den GitHub-Loader ausgetauscht werden. Danach bleibt dieselbe GitHub-Loaderdatei verwendbar; auch Loader-Updates werden signiert geladen.
+
+## Turbomodus
+
+Unter **Einrichten → Turbomodus** einschalten und speichern. Turbo nutzt mehr parallele CPU-Arbeit, fordert haeufiger neue Verarbeitung an und kann dieselbe bereits eingerichtete GPU-Quelle auch fuer die abschliessende Pruefung verwenden. Er startet bei alten Konfigurationen ausgeschaltet. Details, Messungen und verbleibende Grenzen stehen in [docs/Turbo.md](docs/Turbo.md).
 
 ## Lokal entwickeln
 

@@ -237,7 +237,16 @@ namespace PrefireMacro
             turboTimer = new System.Threading.Timer(TurboWake, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
             UpdateStatus("Pausiert"); feedback.Text = cfg.HasFirst ? "Zuerst stabilen Balken anvisieren, dann Haltetaste halten. F10 pausiert sofort." : "Beginne mit Farbe 1: Wähle grüne Pixel aus dem vollen Lebensbalken. Danach Farbe 2 einrichten und speichern.";
             Shown += delegate { if (!preview) { RegisterKeys(); timer.Start(); if (RecordOnStart) ToggleRecording(); } };
-            FormClosing += delegate { closing = true; timer.Stop(); SetTimerPrecision(false); if (turboTimer != null) turboTimer.Dispose(); sequence.Dispose(); if (!sequence.Running) shotVerifier.Dispose(); recorder.Dispose(); barCapture.Dispose(); if (barPreview.Image != null) barPreview.Image.Dispose(); for (int i = 1; i <= 6; i++) Native.UnregisterHotKey(Handle, i); };
+            FormClosing += delegate { closing = true; timer.Stop(); SetTimerPrecision(false); if (turboTimer != null) { turboTimer.Dispose(); turboTimer = null; } sequence.Dispose(); if (!sequence.Running) shotVerifier.Dispose(); recorder.Dispose(); barCapture.Dispose(); if (barPreview.Image != null) barPreview.Image.Dispose(); for (int i = 1; i <= 6; i++) Native.UnregisterHotKey(Handle, i); };
+        }
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                closing = true; turboActive = false;
+                if (turboTimer != null) { turboTimer.Dispose(); turboTimer = null; }
+            }
+            base.Dispose(disposing);
         }
         void TurboWake(object state)
         {
